@@ -1,0 +1,43 @@
+name: SkellForge generated Windows VST3 smoke build
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "skellforge/**"
+      - "templates/**"
+      - ".github/workflows/windows-vst3-smoke.yml"
+  pull_request:
+    paths:
+      - "skellforge/**"
+      - "templates/**"
+permissions:
+  contents: read
+concurrency:
+  group: skellforge-smoke-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Generate and validate native starter
+        run: |
+          python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
+          python -m skellforge validate generated-smoke
+      - name: Build JUCE and pinned SkellCore VST3
+        run: cmake -S generated-smoke -B generated-smoke/build -A x64
+      - name: Compile Release plugin
+        run: cmake --build generated-smoke/build --config Release --parallel 2
+      - name: Verify exact output and bundle it
+        run: python -m skellforge package generated-smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkellForge-Smoke-Windows-VST3
+          path: generated-smoke/SkellForge-SkellForgeSmoke-Windows-VST3.zip
+          if-no-files-found: error
+          retention-days: 7

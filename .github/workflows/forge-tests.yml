@@ -1,0 +1,28 @@
+name: SkellForge CLI tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test generator, IDs and VST3 packaging
+        run: python -m unittest discover -s tests -v
+      - name: Check CLI environment report
+        run: python -m skellforge doctor
+      - name: Generate and validate sample plugin
+        run: |
+          python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
+          python -m skellforge validate generated-smoke
