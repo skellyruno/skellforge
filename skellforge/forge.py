@@ -17,6 +17,7 @@ import zipfile
 from pathlib import Path
 
 from . import __version__
+from .audit import audit_project
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
@@ -266,6 +267,9 @@ def parser() -> argparse.ArgumentParser:
     package = sub.add_parser("package", help="Verify one VST3 and package its bundle")
     package.add_argument("project", type=Path)
     package.add_argument("--out", type=Path)
+    audit = sub.add_parser("audit", help="Read-only audit of an existing JUCE plugin")
+    audit.add_argument("project", type=Path)
+    audit.add_argument("--json", action="store_true", help="Print machine-readable report")
     sub.add_parser("doctor", help="Display environment and dependency status")
     return p
 
@@ -287,9 +291,23 @@ def main(argv: list[str] | None = None) -> int:
             build_project(args.project, args.juce_path, args.core_path, args.parallel)
         elif args.action == "package":
             print(f"Packaged: {package_project(args.project, args.out)}")
+        elif args.action == "audit":
+            report = audit_project(args.project)
+            if args.json:
+                print(json.dumps(report, indent=2))
+            else:
+                print(f"Audit: {report['project']}")
+                print(f"  VST3 code: {report['plugin_code'] or 'unknown'}")
+                print(f"  Bundle ID: {report['bundle_id'] or 'unknown'}")
+                print(f"  Formats: {', '.join(report['formats_detected']) or 'unknown'}")
+                print(f"  SkellCore linked: {report['skellcore_dsp_link_detected']}")
+                print(f"  Detected parameter IDs: {len(report['parameter_ids_detected'])}")
+                for warning in report["warnings"]:
+                    print(f"  CAUTION: {warning}")
+                print("  Automatic migration: disabled (protect IDs and DSP)")
         elif args.action == "doctor":
             doctor()
         return 0
-    except (ForgeError, OSError, subprocess.CalledProcessError) as exc:
+    except (ForgeError, OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"SkellForge error: {exc}", file=sys.stderr)
         return 1

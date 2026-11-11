@@ -18,6 +18,7 @@ Prerequisite: Python 3.10+ and a clone of this repository. No pip dependencies.
 python -m skellforge doctor
 python -m skellforge new "Skell Pulse" ../skell-pulse --code SF01
 python -m skellforge validate ../skell-pulse
+python -m skellforge audit ../skell-pulse --json
 ```
 
 Choose a unique four-character product code for every plugin; Forge checks
@@ -44,6 +45,8 @@ workflow, which can build a downloadable VST3 without your local machine.
   shared DSP, StudioUI hardware-style knobs and skull-click appearance
 - **Identity protection**: VST3 code collision checks, non-overwrite generation,
   stable bundle/manufacturer/World IDs, manifest validation
+- **Read-only migration audit**: inspect existing plugin CMake/parameter IDs, warn on
+  standalone builds or unpinned shared core, report JSON without changing plugins
 - **Build/packaging**: Windows x64 CMake build command, exact-one-bundle packaging,
   checks for nested VST3 binary and ZIP integrity
 - **Automated tests**: generator, reserved IDs, tampering, packaging, error paths

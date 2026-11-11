@@ -7,6 +7,8 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
+from skellforge.audit import audit_project
+
 from skellforge.forge import (
     CORE_REV, ForgeError, create_project, identity, package_project,
     validate_project, build_project, main,
@@ -119,6 +121,25 @@ class ForgeTests(unittest.TestCase):
         with patch("skellforge.forge.sys.platform", "linux"):
             with self.assertRaisesRegex(ForgeError, "requires Windows"):
                 build_project(self.project)
+
+    def test_read_only_audit_of_generated_plugin(self):
+        self.make()
+        before = (self.project / "CMakeLists.txt").read_bytes()
+        report = audit_project(self.project)
+        self.assertTrue(report["juce_target_detected"])
+        self.assertTrue(report["skellcore_dsp_link_detected"])
+        self.assertEqual(report["plugin_code"], "Sf01")
+        self.assertEqual(report["formats_detected"], ["VST3"])
+        self.assertIn("gain_db", report["parameter_ids_detected"])
+        self.assertFalse(report["safe_to_automatically_migrate"])
+        self.assertEqual(before, (self.project / "CMakeLists.txt").read_bytes())
+
+    def test_audit_missing_cmake_reports_warning(self):
+        path = self.root / "old-plugin"
+        path.mkdir()
+        report = audit_project(path)
+        self.assertFalse(report["root_cmake_found"])
+        self.assertTrue(report["warnings"])
 
     def test_cli_roundtrip(self):
         self.assertEqual(main(["new", "Skell Pulse", str(self.project), "--code", "Sf01"]), 0)
