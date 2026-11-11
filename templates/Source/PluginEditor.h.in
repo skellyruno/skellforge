@@ -1,0 +1,28 @@
+#pragma once
+#include <JuceHeader.h>
+#include <SkellCore/StudioUI.h>
+#include "PluginProcessor.h"
+
+class @@TARGET@@AudioProcessorEditor final : public juce::AudioProcessorEditor {
+public:
+    explicit @@TARGET@@AudioProcessorEditor(@@TARGET@@AudioProcessor&);
+    ~@@TARGET@@AudioProcessorEditor() override;
+    void paint(juce::Graphics&) override;
+    void resized() override;
+private:
+    struct SkullHitArea final : juce::Button {
+        SkullHitArea() : juce::Button("Theme") {
+            setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            setTooltip("Click the shared skull to change the theme");
+        }
+        void paintButton(juce::Graphics&, bool, bool) override {}
+    };
+    void changeSkin();
+    skellcore::ui::StudioLookAndFeel skin_{skellcore::ui::StudioSkin::Obsidian};
+    SkullHitArea skull_;
+    juce::Label title_;
+    juce::Label gainLabel_;
+    juce::Slider gainKnob_;
+    juce::AudioProcessorValueTreeState::SliderAttachment gainAttachment_;
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(@@TARGET@@AudioProcessorEditor)
+};

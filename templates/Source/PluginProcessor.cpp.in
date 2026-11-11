@@ -1,0 +1,71 @@
+#include "PluginProcessor.h"
+#include "PluginEditor.h"
+#include <cmath>
+
+@@TARGET@@AudioProcessor::@@TARGET@@AudioProcessor()
+    : juce::AudioProcessor(BusesProperties()
+          .withInput("Input", juce::AudioChannelSet::stereo(), true)
+          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
+      parameters(*this, nullptr, "PARAMETERS", createLayout()) {}
+
+juce::AudioProcessorValueTreeState::ParameterLayout
+@@TARGET@@AudioProcessor::createLayout() {
+    juce::AudioProcessorValueTreeState::ParameterLayout layout;
+    layout.add(std::make_unique<juce::AudioParameterFloat>(
+        juce::ParameterID{"gain_db", 1}, "Gain",
+        juce::NormalisableRange<float>(-24.0f, 24.0f, 1.0f), 0.0f));
+    return layout;
+}
+
+bool @@TARGET@@AudioProcessor::isBusesLayoutSupported(
+    const BusesLayout& layouts) const {
+    const auto input = layouts.getMainInputChannelSet();
+    return (input == juce::AudioChannelSet::mono()
+         || input == juce::AudioChannelSet::stereo())
+        && input == layouts.getMainOutputChannelSet();
+}
+
+void @@TARGET@@AudioProcessor::prepareToPlay(double sampleRate, int) {
+    const double rate = std::isfinite(sampleRate)
+        ? juce::jlimit(1000.0, 192000.0, sampleRate) : 48000.0;
+    gain_.reset(rate, 0.015);
+    const auto* raw = parameters.getRawParameterValue("gain_db");
+    const float value = raw ? raw->load() : 0.0f;
+    const float db = std::isfinite(value) ? juce::jlimit(-24.0f, 24.0f, value) : 0.0f;
+    gain_.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(db));
+}
+
+void @@TARGET@@AudioProcessor::processBlock(
+    juce::AudioBuffer<float>& audio, juce::MidiBuffer&) {
+    juce::ScopedNoDenormals noDenormals;
+    const int frames = audio.getNumSamples();
+    if (frames <= 0) return;
+    for (int ch = getTotalNumInputChannels(); ch < getTotalNumOutputChannels(); ++ch)
+        audio.clear(ch, 0, frames);
+    const auto* raw = parameters.getRawParameterValue("gain_db");
+    const float value = raw ? raw->load() : 0.0f;
+    const float db = std::isfinite(value) ? juce::jlimit(-24.0f, 24.0f, value) : 0.0f;
+    gain_.setTargetValue(juce::Decibels::decibelsToGain(db));
+    const float from = gain_.getCurrentValue();
+    const float to = gain_.skip(frames);
+    audio.applyGainRamp(0, frames, from, to);
+}
+
+juce::AudioProcessorEditor* @@TARGET@@AudioProcessor::createEditor() {
+    return new @@TARGET@@AudioProcessorEditor(*this);
+}
+
+void @@TARGET@@AudioProcessor::getStateInformation(juce::MemoryBlock& out) {
+    if (const auto xml = parameters.copyState().createXml())
+        copyXmlToBinary(*xml, out);
+}
+
+void @@TARGET@@AudioProcessor::setStateInformation(const void* bytes, int size) {
+    if (const auto xml = getXmlFromBinary(bytes, size))
+        if (xml->hasTagName(parameters.state.getType()))
+            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+}
+
+juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter() {
+    return new @@TARGET@@AudioProcessor();
+}

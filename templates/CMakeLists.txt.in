@@ -1,0 +1,50 @@
+cmake_minimum_required(VERSION 3.22)
+project(@@TARGET@@ VERSION 0.1.0 LANGUAGES C CXX)
+
+if(NOT WIN32)
+  message(FATAL_ERROR "SkellForge v0.1 targets Windows VST3 only")
+endif()
+
+include(FetchContent)
+if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
+  add_subdirectory("${JUCE_PATH}" "${CMAKE_BINARY_DIR}/juce")
+else()
+  FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG 8.0.12 GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(JUCE)
+endif()
+
+if(DEFINED SKELLCORE_PATH AND EXISTS "${SKELLCORE_PATH}/SkellCore/CMakeLists.txt")
+  add_subdirectory("${SKELLCORE_PATH}/SkellCore" "${CMAKE_BINARY_DIR}/skellcore")
+elseif(DEFINED SKELLCORE_PATH AND EXISTS "${SKELLCORE_PATH}/CMakeLists.txt")
+  add_subdirectory("${SKELLCORE_PATH}" "${CMAKE_BINARY_DIR}/skellcore")
+else()
+  FetchContent_Declare(SkellCore
+    GIT_REPOSITORY @@CORE_REPO@@
+    GIT_TAG @@CORE_REV@@
+    SOURCE_SUBDIR SkellCore)
+  FetchContent_MakeAvailable(SkellCore)
+endif()
+
+juce_add_plugin(@@TARGET@@
+  COMPANY_NAME "Skell Audio"
+  BUNDLE_ID "@@BUNDLE@@"
+  PLUGIN_MANUFACTURER_CODE SkAu
+  PLUGIN_CODE @@CODE@@
+  FORMATS VST3
+  PRODUCT_NAME "@@NAME@@"
+  IS_SYNTH FALSE
+  NEEDS_MIDI_INPUT FALSE
+  NEEDS_MIDI_OUTPUT FALSE
+  IS_MIDI_EFFECT FALSE
+  COPY_PLUGIN_AFTER_BUILD FALSE)
+juce_generate_juce_header(@@TARGET@@)
+target_sources(@@TARGET@@ PRIVATE
+  Source/PluginProcessor.h Source/PluginProcessor.cpp
+  Source/PluginEditor.h Source/PluginEditor.cpp)
+target_compile_features(@@TARGET@@ PRIVATE cxx_std_17)
+target_compile_definitions(@@TARGET@@ PRIVATE
+  JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(@@TARGET@@ PRIVATE
+  SkellCore::DSP SkellCore::UI
+  juce::juce_audio_utils juce::juce_audio_processors juce::juce_gui_extra)
