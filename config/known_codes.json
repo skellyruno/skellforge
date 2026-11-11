@@ -1,0 +1,32 @@
+{
+  "source": "Snapshot of SkellCore/SkellWorld/catalog.json inspected 2026-11-11; verify live IDs before release",
+  "codes": {
+    "Sktn": "SkellyTune",
+    "Dlay": "Skell Delay",
+    "SkGl": "Skell Glitch",
+    "Mfx1": "Modular FX",
+    "TnRc": "Skell Key",
+    "Sk01": "SkellCore Quickstart",
+    "ScP1": "Skell Scratch",
+    "Sd01": "Skell Stop",
+    "SeQ1": "Skell EQ",
+    "SkDs": "Skell DeEsser",
+    "Bz01": "Skell Fan",
+    "Ss01": "Skell Separator",
+    "OmF2": "OmniChoir",
+    "CkMt": "Checkmate",
+    "Spct": "Skell Spectre",
+    "SkM1": "Skell Master",
+    "SkRT": "SkellTune Realtime",
+    "SkST": "SkellTune Studio",
+    "SkSF": "SkellTune Fast",
+    "SnCr": "Skell Necromancer",
+    "Afar": "Skell Afar",
+    "Sk02": "Skell Spacer",
+    "Sl01": "Skell Silence",
+    "SkPr": "Skell Preset",
+    "Fl26": "Skell Flang",
+    "AdL1": "Skell AdlibLab",
+    "SkCa": "SkellCast"
+  }
+}
