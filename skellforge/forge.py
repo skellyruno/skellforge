@@ -173,9 +173,6 @@ def validate_project(project: Path) -> dict:
                           ("platforms", ["Windows"])):
         if data.get(key) != expected:
             raise ForgeError(f"Identity mismatch in skellforge.json: {key}")
-    if world.get("plugin_code") != info["code"] or world.get("bundle_id") != info["bundle"] \
-            or world.get("product_id") != info["world_id"]:
-        raise ForgeError("SkellWorld manifest identity disagrees with SkellForge")
     cmake = (project / "CMakeLists.txt").read_text(encoding="utf-8")
     for expected in (f"PLUGIN_CODE {info['code']}",
                      f'BUNDLE_ID "{info["bundle"]}"',
@@ -185,6 +182,9 @@ def validate_project(project: Path) -> dict:
             raise ForgeError(f"CMake identity or dependency pin mismatch: {expected}")
     if not re.search(r"\bFORMATS\s+VST3\b", cmake) or re.search(r"\bStandalone\b", cmake):
         raise ForgeError("Only the Windows VST3 format is permitted in this starter")
+    if world.get("plugin_code") != info["code"] or world.get("bundle_id") != info["bundle"] \
+            or world.get("product_id") != info["world_id"]:
+        raise ForgeError("SkellWorld manifest identity disagrees with SkellForge")
     return data
 
 
