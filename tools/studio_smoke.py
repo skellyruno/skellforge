@@ -18,11 +18,16 @@ data["chain"].extend([
     {"id": "lowpass_1", "type": "lowpass", "enabled": True, "cutoff_hz": 8000.0},
 ])
 data["components"].append({
+    "id": "automation_drive", "type": "effect_knob",
+    "parameter_id": "fx_saturate_1_drive", "text": "DRIVE",
+    "x": 288, "y": 144, "w": 106, "h": 112,
+})
+data["components"].append({
     "id": "smoke_label", "type": "text",
     "text": "SKELL / DSP CHECK",
     "x": 20, "y": 264, "w": 210, "h": 24,
 })
 save_studio(project, data)
 changed = regenerate(project)
-assert "ForgeGraph.h" in changed and "ForgeUI.h" in changed
+assert {"ForgeGraph.h", "ForgeUI.h", "ForgeParameters.h"}.issubset(set(changed))
 print("Studio DSP+UI fixture exported:", changed)

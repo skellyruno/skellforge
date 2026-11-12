@@ -3,18 +3,19 @@
 ## What the green button actually does
 
 1. Validate immutable SkellForge and SkellWorld identities.
-2. Validate `forge-studio.json` and regenerate `Source/ForgeUI.h` and
-   `Source/ForgeGraph.h` as needed, protecting handwritten C++.
-3. Run `cmake -S project -B project/build -A x64` with local dependency paths
-   when provided.
-4. Compile Release VST3 with MSVC and default 2 parallel jobs (bounded 1-8).
-5. Find **exactly one** VST3 bundle and one nested VST3 binary; check MZ,
-   PE signature, machine AMD64/0x8664 and PE32+ optional header.
-6. Package into a timestamped `dist/` ZIP without overwriting previous exports.
-7. Append successes/failures, duration and steps to local build history.
+2. Validate `forge-studio.json` and regenerate `Source/ForgeUI.h`,
+   `Source/ForgeGraph.h` and `Source/ForgeParameters.h` with protected writes.
+3. Configure CMake x64 with `-DSKELLFORGE_BUILD_DSP_TESTS=ON`.
+4. Compile Release VST3 **and** the JUCE C++ audio smoke-test executable.
+5. Run `ctest -C Release` for the generated DSP graph at 44.1/48/96 kHz
+   (sine, impulse, silence, NaN, varied blocks and deterministic partitioning).
+6. Find exactly one VST3 and nested PE32+ x64 binary; verify MZ, PE, AMD64.
+7. Export a timestamped `dist/` ZIP, without overwriting prior packages.
+8. Save success/failure, duration and steps in local build history.
 
-This catches missing/bogus outputs and wrong-architecture builds. It does NOT
-load the DLL as FL Studio, inspect exported VST3 factories, or measure DSP quality.
+This catches compilation errors and selected DSP regressions, missing outputs
+and wrong architecture. It does NOT test plugin loading in FL Studio, certify
+the algorithm's sound or measure real-world CPU/latency.
 
 ## Windows setup
 
@@ -52,7 +53,11 @@ Don't assume a passing PE check means plugin host compatibility.
 ## Known limits and safety
 
 - The Studio UI preview is schematic, not actual JUCE graphics.
-- Optional DSP blocks use static settings, not automated host parameters.
+- Saturation drive and lowpass cutoff use unique APVTS parameter IDs and
+  20 ms smoothing; they are automatable in the DAW.
+- Effect removal reserves retired parameter IDs so old projects keep mapping.
+- Once an effect is saved, its default is locked for compatibility; automate
+  its knob in FL Studio rather than changing the default.
 - The DSP editor uses a serial chain with fixed input->gain->...->output flow.
 - The optional graphical installer uses a staged local copy and backups.
   Automatic rollback is attempted if a rename fails; retained backups allow

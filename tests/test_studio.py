@@ -68,10 +68,14 @@ class StudioModelTests(unittest.TestCase):
         save_studio(self.project, doc)
         regenerate(self.project)
         result = (self.project / "Source" / "ForgeGraph.h").read_text()
-        self.assertIn("drive_0 = 2.0f;", result)
-        self.assertIn("std::min(8000.0, rate * 0.45)", result)
-        self.assertIn("std::isfinite(s[i])", result)
+        self.assertIn("fx_saturate_1_drive", result)
+        self.assertIn("fx_lowpass_1_cutoff_hz", result)
+        self.assertIn("smooth_0_.setTargetValue", result)
+        self.assertIn("std::isfinite(ptr[i])", result)
         self.assertIn("state_1_", result)
+        params = (self.project / "Source" / "ForgeParameters.h").read_text()
+        self.assertIn('ParameterID{"fx_saturate_1_drive", 1}', params)
+        self.assertIn('ParameterID{"fx_lowpass_1_cutoff_hz", 1}', params)
         self.assertEqual(regenerate(self.project), [])
 
     def test_rejects_out_of_bounds_and_duplicate_components(self):

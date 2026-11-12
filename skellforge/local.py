@@ -60,6 +60,23 @@ def find_verified_vst3(project: Path) -> tuple[Path, Path]:
     return bundle, binary
 
 
+def verify_dsp_test_registered(build: Path) -> Path:
+    """Prevent zero-test CTest runs from being mistaken for a verified plugin."""
+    if not build.is_dir():
+        raise ForgeError("CMake build directory is missing")
+    programs = sorted(path for path in build.rglob("SkellForgeDspSmoke.exe")
+                      if path.is_file())
+    if len(programs) != 1:
+        raise ForgeError(
+            f"Expected one compiled SkellForgeDspSmoke.exe, found {len(programs)}")
+    test_files = [path for path in build.rglob("CTestTestfile.cmake")
+                  if path.is_file()]
+    if not any("SkellForgeDspSmoke" in p.read_text(encoding="utf-8", errors="replace")
+               for p in test_files):
+        raise ForgeError("Offline DSP test was not registered with CTest")
+    return programs[0]
+
+
 def _run_command(command: list[str], log: LogCallback, *, cwd: Path) -> None:
     log("EXEC: " + subprocess.list2cmdline(command))
     process = subprocess.Popen(command, cwd=str(cwd), shell=False, stdout=subprocess.PIPE,
@@ -78,8 +95,9 @@ def build_and_export(project: Path, *, juce_path: Path | None = None,
                      log: LogCallback | None = None) -> dict:
     """Execute entire local workflow, save durable history, return result.
 
-    Verifies a native PE32+ binary but DOES NOT pretend to replace FL Studio
-    tests, pluginval, audio regression fixtures, or actual performance profiling.
+    Runs actual generated C++ offline DSP regression tests and verifies a native
+    PE32+ binary. These do not replace FL Studio host testing, pluginval or
+    real-world CPU and latency profiling.
     """
     log = log or (lambda _: None)
     project = project.expanduser().resolve()
@@ -99,7 +117,7 @@ def build_and_export(project: Path, *, juce_path: Path | None = None,
     }
     try:
         data = validate_project(project)
-        log("[1/5] Validating project and visual/DSP documents")
+        log("[1/6] Validating project and visual/DSP documents")
         if (project / "forge-studio.json").is_file():
             changed = regenerate(project)
             log("Generated code " + (", ".join(changed) if changed else "is current"))
@@ -114,18 +132,25 @@ def build_and_export(project: Path, *, juce_path: Path | None = None,
             if not direct.is_file() and not (name == "SKELLCORE_PATH" and nested.is_file()):
                 raise ForgeError(f"Invalid {name}: {path}")
             cmake_args.append(f"-D{name}={path}")
-        log("[2/5] Configuring Windows x64 VST3 (local CMake)")
+        cmake_args.append("-DSKELLFORGE_BUILD_DSP_TESTS=ON")
+        log("[2/6] Configuring Windows x64 VST3 and offline DSP tests")
         _run_command(cmake_args, log, cwd=project)
         record["steps"].append("configure")
-        log("[3/5] Compiling Release plugin locally")
+        log("[3/6] Compiling Release plugin and JUCE DSP checker locally")
         _run_command(["cmake", "--build", str(project / "build"), "--config", "Release",
                       "--parallel", str(parallel)], log, cwd=project)
         record["steps"].append("compile")
-        log("[4/5] Verifying one real Windows x64 PE32+ VST3 binary")
+        log("[4/6] Testing 44.1/48/96 kHz, varied block sizes and audio safety")
+        verify_dsp_test_registered(project / "build")
+        _run_command(["ctest", "--test-dir", str(project / "build"), "-C",
+                      "Release", "--output-on-failure", "-R",
+                      "^SkellForgeDspSmoke$"], log, cwd=project)
+        record["steps"].append("offline_dsp")
+        log("[5/6] Verifying one real Windows x64 PE32+ VST3 binary")
         bundle, binary = find_verified_vst3(project)
         record["steps"].append("verify_pe")
         log(f"Verified: {binary} ({binary.stat().st_size:,} bytes)")
-        log("[5/5] Exporting ZIP (no installation or overwrite)")
+        log("[6/6] Exporting ZIP (no installation or overwrite)")
         dist = project / "dist"
         dist.mkdir(exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")

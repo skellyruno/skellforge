@@ -32,9 +32,11 @@ jobs:
       - name: Generate enabled DSP and extra UI scene fixture
         run: python tools/studio_smoke.py generated-smoke
       - name: Build JUCE and pinned SkellCore VST3
-        run: cmake -S generated-smoke -B generated-smoke/build -A x64
+        run: cmake -S generated-smoke -B generated-smoke/build -A x64 -DSKELLFORGE_BUILD_DSP_TESTS=ON
       - name: Compile Release plugin
         run: cmake --build generated-smoke/build --config Release --parallel 2
+      - name: Run actual generated C++ DSP multirate/impulse regression tests
+        run: ctest --test-dir generated-smoke/build -C Release --output-on-failure
       - name: Verify exact output and bundle it
         run: python -m skellforge package generated-smoke
       - uses: actions/upload-artifact@v4

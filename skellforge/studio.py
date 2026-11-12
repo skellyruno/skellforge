@@ -6,6 +6,10 @@ are replaced; user C++ files and the existing SkellCore repository are untouched
 from __future__ import annotations
 
 import json
+from .automation import (ParameterError, registry_specs, unified_specs, active_specs,
+                         sync_registry, render_parameters,
+                         render_graph as render_automated_graph)
+from .ui_codegen import render_ui as render_extended_ui
 import math
 import os
 import re
@@ -62,11 +66,11 @@ def validate_studio(data: dict) -> dict:
         if cid in ids:
             raise StudioError(f"Duplicate component ID: {cid}")
         ids.add(cid)
-        if kind not in (*MAIN, "text"):
+        if kind not in (*MAIN, "text", "effect_knob"):
             raise StudioError(f"Unrecognized visual component: {kind}")
         if kind in MAIN and cid != kind:
             raise StudioError("The four existing plugin controls have immutable IDs")
-        if kind == "text" and cid in MAIN:
+        if kind in ("text", "effect_knob") and cid in MAIN:
             raise StudioError("Additional text cannot replace a built-in control")
         x = _int(component.get("x"), f"{cid}.x", 0, width)
         y = _int(component.get("y"), f"{cid}.y", 0, height)
@@ -74,6 +78,11 @@ def validate_studio(data: dict) -> dict:
         h = _int(component.get("h"), f"{cid}.h", 12, height)
         if x + w > width or y + h > height:
             raise StudioError(f"Visual component {cid} is outside the canvas")
+        if kind == "effect_knob":
+            caption = component.get("text")
+            if (not isinstance(caption, str) or not 1 <= len(caption) <= 64
+                    or any(ord(c) < 32 for c in caption)):
+                raise StudioError("Effect knob captions must be 1–64 printable characters")
         if kind == "text":
             value = component.get("text")
             if not isinstance(value, str) or not 1 <= len(value) <= 64:
@@ -111,6 +120,20 @@ def validate_studio(data: dict) -> dict:
             cutoff = node.get("cutoff_hz")
             if type(cutoff) not in (int, float) or not math.isfinite(cutoff) or not 20 <= cutoff <= 20000:
                 raise StudioError("Lowpass cutoff must be between 20 and 20000 Hz")
+    try:
+        registry_specs(data)
+        possible_ids = {spec["id"] for spec in active_specs(data)}
+    except ParameterError as exc:
+        raise StudioError(str(exc)) from exc
+    linked = set()
+    for item in components:
+        if item["type"] == "effect_knob":
+            param = item.get("parameter_id")
+            if param not in possible_ids:
+                raise StudioError("Effect knob must reference a live DSP node parameter")
+            if param in linked:
+                raise StudioError("Each DSP parameter may have one visual knob")
+            linked.add(param)
     return data
 
 
@@ -133,39 +156,7 @@ def _cpp_str(value: str) -> str:
 
 def render_ui(data: dict) -> str:
     validate_studio(data)
-    width, height = data["canvas"]["width"], data["canvas"]["height"]
-    items = {c["id"]: c for c in data["components"]}
-    pieces = [
-        HEADER, "#pragma once\n", "#include <JuceHeader.h>\n",
-        "namespace forgeui {\n",
-        f"inline constexpr int referenceWidth = {width};\n",
-        f"inline constexpr int referenceHeight = {height};\n",
-        "inline juce::Rectangle<int> scaled(int x, int y, int w, int h, int currentW, int currentH) {\n",
-        "    const float sx = static_cast<float>(currentW) / referenceWidth;\n",
-        "    const float sy = static_cast<float>(currentH) / referenceHeight;\n",
-        "    return {juce::roundToInt(x * sx), juce::roundToInt(y * sy),\n",
-        "            juce::roundToInt(w * sx), juce::roundToInt(h * sy)};\n}\n",
-        "inline void layout(juce::Component& skull, juce::Component& title,\n",
-        "                   juce::Component& gainLabel, juce::Component& gainKnob,\n",
-        "                   int width, int height) {\n",
-    ]
-    for cid, variable in zip(MAIN, ("skull", "title", "gainLabel", "gainKnob")):
-        pieces.append(f"    {variable}.setBounds(scaled({_rect(items[cid])}, width, height));\n")
-    pieces.extend([
-        "}\n",
-        "inline void drawLabels(juce::Graphics& g, int width, int height, juce::Colour colour) {\n",
-        "    g.setColour(colour);\n",
-        "    g.setFont(juce::Font(juce::FontOptions(13.0f)));\n",
-    ])
-    for c in data["components"]:
-        if c["type"] != "text":
-            continue
-        pieces.append(
-            f"    g.drawFittedText({_cpp_str(c['text'])}, "
-            f"scaled({_rect(c)}, width, height), juce::Justification::centred, 1);\n"
-        )
-    pieces.append("}\n} // namespace forgeui\n")
-    return "".join(pieces)
+    return render_extended_ui(data, HEADER)
 
 
 def _cpp_float(value: float) -> str:
@@ -177,66 +168,7 @@ def _cpp_float(value: float) -> str:
 
 def render_graph(data: dict) -> str:
     validate_studio(data)
-    pieces = [
-        HEADER, "#pragma once\n#include <JuceHeader.h>\n",
-        "#include <algorithm>\n#include <array>\n#include <cmath>\n",
-        "namespace forgedsp {\nclass Graph {\npublic:\n",
-        "    void prepare(double sampleRate) noexcept {\n",
-        "        const double rate = std::isfinite(sampleRate) && sampleRate > 1000.0 ? sampleRate : 48000.0;\n",
-    ]
-    enabled_nodes = [n for n in data["chain"][1:] if n["enabled"]]
-    for index, node in enumerate(enabled_nodes):
-        if node["type"] == "lowpass":
-            cutoff = float(node["cutoff_hz"])
-            pieces.append(
-                f"        coeff_{index}_ = static_cast<float>(std::exp(-6.283185307179586 * "
-                f"std::min({_cpp_float(cutoff)}, rate * 0.45) / rate));\n"
-                f"        state_{index}_.fill(0.0f);\n"
-            )
-    pieces.append("        (void)rate;\n    }\n")
-    pieces.extend([
-        "    void process(juce::AudioBuffer<float>& audio) noexcept {\n",
-        "        const int samples = audio.getNumSamples();\n",
-        "        const int channels = juce::jmin(audio.getNumChannels(), 2);\n",
-        "        if (samples == 0) return;\n",
-    ])
-    for index, node in enumerate(enabled_nodes):
-        if node["type"] == "saturate":
-            drive = float(node["drive"])
-            # Normalize the saturation curve so tanh(drive*x) never boosts the near
-            # full-scale signal beyond ±1, provided the input was already ±1.
-            pieces.extend([
-                f"        // {node['id']}: enabled saturation (static drive)\n",
-                f"        constexpr float drive_{index} = {_cpp_float(drive)}f;\n",
-                f"        const float normalizer_{index} = 1.0f / std::tanh(drive_{index});\n",
-                "        for (int ch = 0; ch < channels; ++ch) {\n",
-                "            auto* s = audio.getWritePointer(ch);\n",
-                "            for (int i = 0; i < samples; ++i)\n",
-                f"                s[i] = std::tanh((std::isfinite(s[i]) ? s[i] : 0.0f) * drive_{index}) * normalizer_{index};\n",
-                "        }\n",
-            ])
-        elif node["type"] == "lowpass":
-            pieces.extend([
-                f"        // {node['id']}: enabled one-pole lowpass (static cutoff)\n",
-                "        for (int ch = 0; ch < channels; ++ch) {\n",
-                "            auto* s = audio.getWritePointer(ch);\n",
-                f"            float history = state_{index}_[static_cast<size_t>(ch)];\n",
-                "            for (int i = 0; i < samples; ++i) {\n",
-                f"                const float clean = std::isfinite(s[i]) ? s[i] : 0.0f;\n",
-                f"                history = coeff_{index}_ * history + (1.0f - coeff_{index}_) * clean;\n",
-                "                s[i] = history;\n",
-                "            }\n",
-                f"            state_{index}_[static_cast<size_t>(ch)] = "
-                "std::abs(history) < 1.0e-20f ? 0.0f : history;\n",
-                "        }\n",
-            ])
-    pieces.append("        (void)channels;\n    }\nprivate:\n")
-    for index, node in enumerate(enabled_nodes):
-        if node["type"] == "lowpass":
-            pieces.append(f"    float coeff_{index}_ = 0.0f;\n")
-            pieces.append(f"    std::array<float, 2> state_{index}_{{}};\n")
-    pieces.append("};\n} // namespace forgedsp\n")
-    return "".join(pieces)
+    return render_automated_graph(data, HEADER)
 
 
 def _write_generated(path: Path, content: str) -> bool:
@@ -262,9 +194,19 @@ def regenerate(project: Path) -> list[str]:
     source = project / "Source"
     if not source.is_dir():
         raise StudioError("Missing generated Source directory")
+    outputs = (("ForgeUI.h", render_ui(data)),
+               ("ForgeGraph.h", render_graph(data)),
+               ("ForgeParameters.h", render_parameters(data, HEADER)))
+    # Check all three targets before touching even one file: if a user-owned
+    # header blocks generation, never leave a half-updated build tree.
+    for name, content in outputs:
+        path = source / name
+        if path.exists():
+            existing = path.read_text(encoding="utf-8")
+            if existing != content and not existing.startswith(HEADER):
+                raise StudioError(f"Refusing to replace user-owned header: {path}")
     changed = []
-    for name, content in (("ForgeUI.h", render_ui(data)),
-                          ("ForgeGraph.h", render_graph(data))):
+    for name, content in outputs:
         if _write_generated(source / name, content):
             changed.append(name)
     return changed
@@ -285,6 +227,14 @@ def save_studio(project: Path, data: dict) -> None:
         raise StudioError("Not a Forge Studio project")
     # Only the Studio JSON is saved. Header compilation occurs explicitly
     # on regenerate or Build; no background editing of C++ while dragging.
+    # Merge historical parameter IDs before saving: deleted/bypassed nodes
+    # never free IDs to be reassigned to unrelated effects.
+    try:
+        previous = load_studio(project)
+        sync_registry(data, previous)
+        validate_studio(data)
+    except ParameterError as exc:
+        raise StudioError(str(exc)) from exc
     path = project / "forge-studio.json"
     content = json.dumps(data, indent=2, ensure_ascii=True) + "\n"
     fd, temporary = tempfile.mkstemp(prefix="forge-studio.", dir=project)
