@@ -1,5 +1,6 @@
 #include <SkellNative/Dsp.h>
 #include <SkellNative/PluginApi.h>
+#include <SkellNative/State.h>
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -129,7 +130,55 @@ static bool testSdkContract() {
     return true;
 }
 
+static bool testStateSerialization() {
+    using namespace skellnative::sdk;
+    StateSnapshot snapshot;
+    snapshot.parameters.push_back({"gain_db",0.5f});
+    snapshot.parameters.push_back({"fx_warmth_drive",0.25f});
+    const auto encoded=encodeState("skell.example",snapshot);
+    if (!encoded || encoded->size()<16) return false;
+    const auto again=encodeState("skell.example",snapshot);
+    if (!again || *again!=*encoded) return false;
+    const auto decoded=decodeState("skell.example",*encoded);
+    if (!decoded || decoded->parameters.size()!=2) return false;
+    if (decoded->parameters[0].persistentId!="gain_db"
+        || decoded->parameters[0].normalized!=0.5f
+        || decoded->parameters[1].persistentId!="fx_warmth_drive"
+        || decoded->parameters[1].normalized!=0.25f) return false;
+    if (decodeState("skell.other",*encoded)) return false;
+    auto corrupt=*encoded;
+    corrupt[corrupt.size()-6]^=0x20u;
+    if (decodeState("skell.example",corrupt)) return false;
+    corrupt=*encoded;
+    corrupt.pop_back();
+    if (decodeState("skell.example",corrupt)) return false;
+    corrupt=*encoded;
+    corrupt.push_back(0);
+    if (decodeState("skell.example",corrupt)) return false;
+    snapshot.parameters.push_back({"gain_db",0.8f});
+    if (encodeState("skell.example",snapshot)) return false;
+    snapshot.parameters.pop_back();
+    snapshot.parameters[1].normalized=std::numeric_limits<float>::infinity();
+    if (encodeState("skell.example",snapshot)) return false;
+    snapshot.parameters[1].normalized=0.25f;
+    snapshot.parameters[1].persistentId="../escape";
+    if (encodeState("skell.example",snapshot)) return false;
+    snapshot.parameters[1].persistentId="fx_warmth_drive";
+    if (encodeState("skell.example\nother",snapshot)) return false;
+    // Blank state is supported and tied to the same product identity.
+    StateSnapshot blank;
+    const auto empty=encodeState("skell.blank",blank);
+    if (!empty) return false;
+    const auto restored=decodeState("skell.blank",*empty);
+    if (!restored || !restored->parameters.empty()) return false;
+    return true;
+}
+
 int main() {
+    if (!testStateSerialization()) {
+        std::fprintf(stderr, "SkellNative versioned state serialization failed\n");
+        return 1;
+    }
     if (!testSdkContract()) {
         std::fprintf(stderr, "SkellNative source SDK contract failed\n");
         return 1;
