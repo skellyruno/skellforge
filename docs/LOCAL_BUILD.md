@@ -35,6 +35,21 @@ The first build may use FetchContent to download pinned dependency sources.
 Subsequent builds reuse the same CMake build tree; they do not require a
 GitHub Actions build or a GitHub push.
 
+## Real generated JUCE UI screenshots
+
+Run 'python -m skellforge preview ../skell-pulse' or use RENDER ACTUAL JUCE
+EDITOR in the visual Studio tab. This compiles the actual generated processor
+and editor into a separate Windows preview program and uses the pinned
+SkellCore headless renderer to save compact (390x260), default (440x310)
+and large (900x600) PNGs. A manifest check verifies sizes and all scenes.
+The GUI opens the screenshots; their original files remain under the
+project's .skellforge/ui-preview directory.
+
+The first preview build may take longer to resolve JUCE/SkellCore. Subsequent
+renders can use the same local CMake build tree. Preview compilation is
+optional and excluded from normal VST3 builds; it does not modify or install
+any VST3 bundles.
+
 ## Testing in FL Studio
 
 Export ZIP is not installation. Use **INSTALL INTO VST3 FOLDER** only after

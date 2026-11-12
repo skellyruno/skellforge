@@ -5,7 +5,7 @@ It uses [SkellCore](https://github.com/skellyruno/skellcore-vst-template) for
 shared C++ DSP and JUCE UI. It is designed to make new Skelly plugins and to
 build them **locally** without using GitHub Actions for every edit.
 
-Current stage: **Studio v0.3 experimental development branch** (based on the v0.2 pilot). The original v0.1 generator is preserved.
+Current stage: **Studio v0.4 experimental development branch** (based on the v0.2 pilot). The original v0.1 generator is preserved.
 Existing Skelly plugins are not modified automatically.
 
 ## Fast start on Windows
@@ -24,9 +24,12 @@ In Studio choose **NEW PLUGIN**, enter a unique four-character code and choose
 a parent folder. In **UI DESIGNER**, drag built-in controls and add text labels.
 In **DSP CHAIN**, add optional serial Saturation or Lowpass blocks; newly added
 effects are **bypassed by default**, so an untouched plugin is neutral. Then
-use **+ ADD FX KNOB** in the UI designer to connect a real automatable rotary
-control to an effect's drive or cutoff. Choose **SAVE DESIGN** and then
-**BUILD VST3** → **BUILD + VERIFY + EXPORT**.
+use **+ ADD FX KNOB** in the UI designer to connect an automatable rotary
+control to drive/cutoff, and **+ ADD OUTPUT METER** for an optional live meter.
+Choose **SAVE DESIGN** and then **BUILD VST3** → **BUILD + VERIFY + EXPORT**.
+**RENDER ACTUAL JUCE EDITOR** compiles a separate optional preview executable
+and opens verified 390×260 / 440×310 / 900×600 screenshots rendered by
+SkellCore from the exact generated plugin editor (not Tk mockups).
 
 The builder runs CMake and Visual Studio on **your own PC**, runs JUCE C++
 offline DSP tests at 44.1/48/96 kHz, verifies a Windows x64 PE32+
@@ -48,6 +51,7 @@ folders in the Build tab to use previously checked-out dependencies.
 python -m skellforge new "Skell Pulse" ../skell-pulse --code SF01
 python -m skellforge validate ../skell-pulse
 python -m skellforge regenerate ../skell-pulse
+python -m skellforge preview ../skell-pulse
 python -m skellforge build-local ../skell-pulse --parallel 2
 ```
 
@@ -60,15 +64,23 @@ python -m skellforge build-local ../skell-pulse --parallel 2 --juce-path C:/JUCE
 Older `build` and `package` CLI commands are retained, and generated projects
 still include optional GitHub CI. **Local build is the primary workflow.**
 
-## What's in Studio v0.3 (experimental)
+## What's in Studio v0.4 (experimental)
 
 | Milestone | Current capability | Limit |
 | --- | --- | --- |
 | Testing | Python regression suite, native JUCE impulse/signal/zero-block tests at 44.1/48/96 kHz in local build, binary and ZIP verification | Not a substitute for FL Studio host/CPU tests |
-| Component library | SkellCore StudioUI widgets, gain control, text labels and bound extra DSP knobs | Meters, preset browser and arbitrary controls remain planned |
-| Visual UI editor | Drag controls on an approximate Tk preview, adjust bounds and text, save JSON, generate C++ JUCE layout | Preview is not native JUCE pixel-perfect rendering |
+| Component library | SkellCore StudioUI widgets, gain control, text labels, bound extra DSP knobs and optional realtime output meters | Preset browser and arbitrary controls remain planned |
+| Visual UI editor | Drag controls on Tk design canvas; independently compile and capture the **real JUCE editor** in 3 sizes | Tk canvas remains approximate; actual JUCE preview compiles on Windows |
 | DSP graph | Serial, reorderable saturation/one-pole lowpass after gain; drive/cutoff are host-automatable and smoothed | No parallel routing yet; DSP prototypes need ear/CPU tests |
 | Local build/export | Desktop one-click CMake x64 Release, verify PE, package unique ZIP, history and confirmed VST3 installation with backup | Build tooling must be installed on user's Windows machine |
+
+### Independent DSP groundwork
+
+The separate native/ project is **pure C++17 DSP with no JUCE**. It has gain,
+saturation, lowpass and atomic peak source components with Windows/Linux tests.
+This is **not a working JUCE-free VST3 wrapper**. The current plugin generator
+still uses JUCE to connect to FL Studio. See
+[SkellNative independence roadmap](docs/JUCE_INDEPENDENCE.md).
 
 ## Stability principles
 
@@ -92,6 +104,9 @@ still include optional GitHub CI. **Local build is the primary workflow.**
 ```sh
 python -m unittest discover -s tests -v
 python -m compileall -q skellforge tests
+cmake -S native -B native-build
+cmake --build native-build --config Release
+ctest --test-dir native-build -C Release --output-on-failure
 ```
 
 CI includes Windows/Linux CLI suites and a separate Windows VST3 smoke build.

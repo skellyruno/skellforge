@@ -1,6 +1,6 @@
 {
   "schema": "skellforge/components/1",
-  "source": "SkellForge Studio v0.3 prototype; reviewed on feature branch",
+  "source": "SkellForge v0.4 experimental: real JUCE previews and optional output meters",
   "ui": [
     {
       "id": "skellcore.skull-mark",
@@ -55,6 +55,14 @@
         "fx_<nodeid>_drive",
         "fx_<nodeid>_cutoff_hz"
       ]
+    },
+    {
+      "id": "skellforge.output-meter",
+      "label": "Animated realtime output meter",
+      "kind": "meter",
+      "phase": "experimental",
+      "source": "plugin audio peak via atomic",
+      "note": "redraw in editor GUI only"
     }
   ],
   "dsp": [
@@ -78,6 +86,13 @@
       "kind": "lowpass",
       "phase": "prototype",
       "default": "bypassed; cutoff host-automatable when enabled"
+    },
+    {
+      "id": "skellnative.prototype",
+      "label": "JUCE-free C++17 DSP",
+      "kind": "portable",
+      "phase": "prototype",
+      "note": "not yet a VST3 backend"
     }
   ]
 }

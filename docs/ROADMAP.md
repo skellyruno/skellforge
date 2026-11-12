@@ -27,12 +27,22 @@ JUCE, a modular DAW, or a full visual VST builder.
 - Native offline JUCE signal/impulse/finite/partition tests in local builder.
 - Review behind CI and manual FL Studio tests; do not force-merge.
 
-## v0.4+ next quality gates
+## v0.4 experimental branch
+- Add optional real JUCE editor screenshot build using pinned SkellCore,
+  with compact/default/large PNG scenes and manifest verification.
+- Add a small live output-peak meter with lock-free per-plugin audio data and
+  GUI-thread-only painting; optional placement in visual editor.
+- Begin SkellNative proof of concept: portable C++17 gain, saturation,
+  lowpass, and peak processing with independent Windows/Linux CMake tests.
+- Keep existing plugin IDs, APVTS identities, and neutral templates unchanged.
+
+## v0.5+ quality gates
 - Expand realtime audio fixtures into reference WAVs and CPU baselines,
   with real hardware measurements (and compare smoothing under automation).
-- Preview images from the **actual** JUCE editor via SkellCore headless renderer.
-- Native parameter-mapped controls: buttons, menus, additional knobs, meters,
-  preset browser, parameter stability and automation.
+- Make true JUCE preview faster and add interactive pointer/layout tests,
+  visual diff thresholds, and optional screenshot review in Project Hub.
+- More native parameter-mapped controls: buttons, menus, preset browser and
+  user-defined parameter types. Add dynamic meter range, dB scale and hold.
 - Accurate routable DSP graph with typed ports, bypass, host latency contracts,
   graph cycle detection and serialized parameters.
 - Harden and validate the v0.2 opt-in VST3 installer: FL Studio live-file
@@ -42,6 +52,9 @@ JUCE, a modular DAW, or a full visual VST builder.
 - Pin and document official master skull geometry when user approves it.
 - For each production plugin: read-only migration audit, golden audio/DAW save
   parity before any change; never automatically rewrite DSP.
+
+The JUCE-free backend must pass strict VST3 host validation before being
+advertised as supported. See docs/JUCE_INDEPENDENCE.md.
 
 ## Release gate
 Cannot call Studio production-ready until:
