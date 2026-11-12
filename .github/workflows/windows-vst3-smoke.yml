@@ -6,6 +6,7 @@ on:
     paths:
       - "skellforge/**"
       - "templates/**"
+      - "tools/**"
       - ".github/workflows/windows-vst3-smoke.yml"
   pull_request:
     paths:
@@ -39,6 +40,14 @@ jobs:
         run: ctest --test-dir generated-smoke/build -C Release --output-on-failure
       - name: Verify exact output and bundle it
         run: python -m skellforge package generated-smoke
+      - name: Build and validate screenshots from the real JUCE editor
+        run: python -m skellforge preview generated-smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkellForge-Smoke-Real-JUCE-UI
+          path: generated-smoke/.skellforge/ui-preview/**/*
+          if-no-files-found: error
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: SkellForge-Smoke-Windows-VST3
