@@ -14,7 +14,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from .forge import ForgeError, create_project, validate_project
-from .local import build_and_export, read_history, find_verified_vst3
+from .local import build_and_export, read_history, find_verified_vst3, install_verified_vst3
 from .studio import StudioError, load_studio, save_studio, regenerate, validate_studio
 
 BG = "#090b0b"
@@ -188,6 +188,7 @@ class StudioApp:
         controls.pack(fill="x", padx=12, pady=(5, 14))
         self.build_btn = self.button(controls, "BUILD + VERIFY + EXPORT VST3", self._build)
         self.build_btn.pack(side="left", padx=2)
+        self.button(controls, "INSTALL INTO VST3 FOLDER", self._install, color=RAISED, fg=GREEN).pack(side="left", padx=8)
         self.button(controls, "OPEN EXPORT FOLDER", self._show_export, color=RAISED, fg=WHITE).pack(side="left", padx=8)
         self.button(controls, "BUILD HISTORY", self._history, color=RAISED, fg=WHITE).pack(side="left", padx=4)
         self.label(self.build_tab, "BUILD LOG", color=MUTED, size=9, bold=True).pack(anchor="w", padx=16, pady=(12, 4))
@@ -507,14 +508,16 @@ class StudioApp:
         window.grab_set()
 
     def _save(self):
-        if not self.document or not self.project:
-            return
+        if self.busy or not self.document or not self.project:
+            return False
         try:
             save_studio(self.project, self.document)
             changed = regenerate(self.project)
             self._notify(f"Design saved. Generated: {', '.join(changed) if changed else 'no code changes'}")
+            return True
         except (StudioError, OSError, ValueError) as exc:
             messagebox.showerror("Save failed", str(exc), parent=self.root)
+            return False
 
     def _validate(self):
         if not self.project:
@@ -541,7 +544,8 @@ class StudioApp:
             self._notify("Open a project to build.", error=True)
             return
         try:
-            self._save()
+            if not self._save():
+                return
             validate_project(self.project)
         except (ForgeError, StudioError, OSError) as exc:
             messagebox.showerror("Cannot build", str(exc), parent=self.root)
@@ -574,10 +578,46 @@ class StudioApp:
                     self.latest_archive = Path(payload["archive"])
                     self._notify(f"VST3 exported in {payload['duration_seconds']:.1f}s")
                     self._write_log("Build succeeded. Next: test in FL Studio (load, automate, save/reopen).")
+                elif kind == "installed":
+                    self._notify("Installed to selected VST3 folder; rescan plugins in FL Studio.")
+                    self._write_log("INSTALLED: " + payload["installed"])
+                    if payload["backup"]:
+                        self._write_log("BACKUP: " + payload["backup"])
                 else:
                     self._notify("Local build failed - see log.", error=True)
                     self._write_log("ERROR: " + payload)
         self.root.after(120, self._poll)
+
+    def _install(self):
+        if self.busy or not self.project:
+            self._notify("Open a project and finish its build first.", error=True)
+            return
+        try:
+            find_verified_vst3(self.project)
+        except (ForgeError, OSError) as exc:
+            messagebox.showerror("No valid built VST3", str(exc), parent=self.root)
+            return
+        folder = filedialog.askdirectory(parent=self.root,
+                                         title="Choose a folder ALREADY configured in FL Studio's plugin paths")
+        if not folder:
+            return
+        message = ("Replace/install the built VST3 into this folder?\n\n"
+                   + folder + "\n\nExisting plugins with the same bundle name will be backed up "
+                   "to your SkellForge project. Close FL Studio first.")
+        if not messagebox.askyesno("Confirm local VST3 installation", message,
+                                   parent=self.root):
+            return
+        self.busy = True
+        self.build_btn.config(state="disabled", text="INSTALLING VST3...")
+        project = self.project
+        def work():
+            try:
+                output = install_verified_vst3(project, Path(folder))
+                self.events.put(("installed", output))
+            except Exception as exc:
+                self.events.put(("error", "VST3 install failed: " + str(exc)))
+        threading.Thread(target=work, daemon=True,
+                         name="SkellForge-install-vst3").start()
 
     def _show_export(self):
         if not self.project:
