@@ -292,6 +292,9 @@ def parser() -> argparse.ArgumentParser:
     lang_export = sub.add_parser("lang-export", help="Compile SkellLang to validated JSON; never overwrite output")
     lang_export.add_argument("source", type=Path)
     lang_export.add_argument("destination", type=Path)
+    lang_from = sub.add_parser("lang-from-studio", help="Losslessly export a saved Studio project as .skell source")
+    lang_from.add_argument("project", type=Path)
+    lang_from.add_argument("destination", type=Path)
     lang_new = sub.add_parser("lang-new", help="Generate a brand new plugin from SkellLang source")
     lang_new.add_argument("source", type=Path)
     lang_new.add_argument("name")
@@ -349,6 +352,9 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "lang-export":
             from .skelllang import export_json
             print(f"Compiled SkellLang: {export_json(args.source, args.destination)}")
+        elif args.action == "lang-from-studio":
+            from .skelllang import export_from_studio
+            print("Exported SkellLang: " + str(export_from_studio(args.project, args.destination)))
         elif args.action == "lang-new":
             from .skelllang import compile_file
             from .studio import save_studio
