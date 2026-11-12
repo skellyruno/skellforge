@@ -29,6 +29,8 @@ jobs:
         run: |
           python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
           python -m skellforge validate generated-smoke
+      - name: Generate enabled DSP and extra UI scene fixture
+        run: python tools/studio_smoke.py generated-smoke
       - name: Build JUCE and pinned SkellCore VST3
         run: cmake -S generated-smoke -B generated-smoke/build -A x64
       - name: Compile Release plugin

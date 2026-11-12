@@ -1,0 +1,79 @@
+{
+  "schema": "skellforge/components/1",
+  "source": "SkellForge Studio v0.2; reusable SkellCore widgets plus Forge pilot blocks",
+  "ui": [
+    {
+      "id": "skellcore.skull-mark",
+      "label": "SkellCore skull-key",
+      "kind": "skull",
+      "phase": "existing",
+      "note": "temporary placeholder pending approved master skull"
+    },
+    {
+      "id": "skellcore.studio-knob",
+      "label": "Hardware-style gain knob",
+      "kind": "gain_knob",
+      "phase": "functional",
+      "parameter": "gain_db"
+    },
+    {
+      "id": "skellforge.title",
+      "label": "Plugin title",
+      "kind": "title",
+      "phase": "functional"
+    },
+    {
+      "id": "skellforge.gain-label",
+      "label": "Gain caption",
+      "kind": "gain_label",
+      "phase": "functional"
+    },
+    {
+      "id": "skellforge.text",
+      "label": "Text label",
+      "kind": "text",
+      "phase": "visual-only"
+    },
+    {
+      "id": "future.button",
+      "label": "Button",
+      "kind": "button",
+      "phase": "planned"
+    },
+    {
+      "id": "future.meter",
+      "label": "Audio meter",
+      "kind": "meter",
+      "phase": "planned"
+    },
+    {
+      "id": "future.knob",
+      "label": "Additional automatable knob",
+      "kind": "knob",
+      "phase": "planned"
+    }
+  ],
+  "dsp": [
+    {
+      "id": "forge.gain",
+      "label": "Host automatable gain",
+      "kind": "gain",
+      "phase": "functional",
+      "default": "0 dB"
+    },
+    {
+      "id": "forge.saturate",
+      "label": "Serial soft saturation",
+      "kind": "saturate",
+      "phase": "prototype",
+      "default": "bypassed; static drive"
+    },
+    {
+      "id": "forge.lowpass",
+      "label": "Serial one-pole lowpass",
+      "kind": "lowpass",
+      "phase": "prototype",
+      "default": "bypassed; static cutoff"
+    }
+  ]
+}
