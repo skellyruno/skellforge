@@ -20,9 +20,16 @@
 Each step is useful but **all five are still an MVP**, not feature parity with
 JUCE, a modular DAW, or a full visual VST builder.
 
-## v0.3 next quality gates
-- Realtime DSP reference/impulse WAV fixtures at 44.1/48/96 kHz; NaN,
-  denormal, bypass, smoothing, variable blocks and CPU baselines.
+## v0.3 implemented on experimental review branch
+- Generate stable APVTS parameters for serial saturation/lowpass blocks.
+- Draggable attached DSP knobs, optional bypass, and 20 ms smoothing.
+- Preserve removed parameter IDs as retired entries and prevent reuse.
+- Native offline JUCE signal/impulse/finite/partition tests in local builder.
+- Review behind CI and manual FL Studio tests; do not force-merge.
+
+## v0.4+ next quality gates
+- Expand realtime audio fixtures into reference WAVs and CPU baselines,
+  with real hardware measurements (and compare smoothing under automation).
 - Preview images from the **actual** JUCE editor via SkellCore headless renderer.
 - Native parameter-mapped controls: buttons, menus, additional knobs, meters,
   preset browser, parameter stability and automation.

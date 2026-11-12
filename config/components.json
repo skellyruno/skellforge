@@ -1,6 +1,6 @@
 {
   "schema": "skellforge/components/1",
-  "source": "SkellForge Studio v0.2; reusable SkellCore widgets plus Forge pilot blocks",
+  "source": "SkellForge Studio v0.3 prototype; reviewed on feature branch",
   "ui": [
     {
       "id": "skellcore.skull-mark",
@@ -47,10 +47,14 @@
       "phase": "planned"
     },
     {
-      "id": "future.knob",
-      "label": "Additional automatable knob",
-      "kind": "knob",
-      "phase": "planned"
+      "id": "skellforge.effect-knob",
+      "label": "Host automatable FX rotary",
+      "kind": "effect_knob",
+      "phase": "experimental",
+      "parameters": [
+        "fx_<nodeid>_drive",
+        "fx_<nodeid>_cutoff_hz"
+      ]
     }
   ],
   "dsp": [
@@ -66,14 +70,14 @@
       "label": "Serial soft saturation",
       "kind": "saturate",
       "phase": "prototype",
-      "default": "bypassed; static drive"
+      "default": "bypassed; drive host-automatable when enabled"
     },
     {
       "id": "forge.lowpass",
       "label": "Serial one-pole lowpass",
       "kind": "lowpass",
       "phase": "prototype",
-      "default": "bypassed; static cutoff"
+      "default": "bypassed; cutoff host-automatable when enabled"
     }
   ]
 }
