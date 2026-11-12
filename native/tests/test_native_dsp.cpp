@@ -174,7 +174,55 @@ static bool testStateSerialization() {
     return true;
 }
 
+static bool testSampleOffsetGainSpans() {
+    // Reference scalar processing and block-span processing must match,
+    // even for multiple parameter events at the same sample offset.
+    constexpr std::size_t count=256;
+    std::array<float,count> sourceL{},sourceR{},spansL{},spansR{};
+    for (std::size_t i=0; i<count; ++i) {
+        sourceL[i]=static_cast<float>(0.2*std::sin(6.283185307179586*i/13.0));
+        sourceR[i]=-0.6f*sourceL[i];
+    }
+    spansL=sourceL; spansR=sourceR;
+    const std::array<std::size_t,7> offsets{{0,1,17,17,64,127,255}};
+    const std::array<float,7> normalized{{0.5f,0.2f,0.8f,0.0f,1.0f,0.3f,0.5f}};
+    std::array<float,count> expectedL{},expectedR{};
+    float current=0.5f;
+    std::size_t event=0;
+    for (std::size_t i=0;i<count;++i) {
+        while (event<offsets.size() && offsets[event]==i)
+            current=normalized[event++];
+        expectedL[i]=sourceL[i]*current*2.0f;
+        expectedR[i]=sourceR[i]*current*2.0f;
+    }
+    Gain kernel;
+    current=0.5f;
+    std::size_t begin=0;
+    for (std::size_t i=0;i<offsets.size();++i) {
+        const auto end=offsets[i];
+        if (end>begin) {
+            kernel.setLinear(current*2.0f);
+            if (!kernel.process(block(spansL.data()+begin,spansR.data()+begin,end-begin)))
+                return false;
+        }
+        current=normalized[i];
+        begin=end;
+    }
+    kernel.setLinear(current*2.0f);
+    if (!kernel.process(block(spansL.data()+begin,spansR.data()+begin,count-begin)))
+        return false;
+    for (std::size_t i=0; i<count; ++i) {
+        if (std::abs(spansL[i]-expectedL[i])>2e-6f ||
+            std::abs(spansR[i]-expectedR[i])>2e-6f) return false;
+    }
+    return true;
+}
+
 int main() {
+    if (!testSampleOffsetGainSpans()) {
+        std::fprintf(stderr, "SkellNative sample-offset span processing regression failed\n");
+        return 1;
+    }
     if (!testStateSerialization()) {
         std::fprintf(stderr, "SkellNative versioned state serialization failed\n");
         return 1;
