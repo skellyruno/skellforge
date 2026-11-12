@@ -26,12 +26,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Generate and validate native starter
+      - name: Generate Windows VST3 from SkellLang source
         run: |
-          python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
+          python -m skellforge lang-check examples/SkellWarmth.skell
+          python -m skellforge lang-new examples/SkellWarmth.skell "Skell Forge Smoke" generated-smoke --code SF90
           python -m skellforge validate generated-smoke
-      - name: Generate enabled DSP and extra UI scene fixture
-        run: python tools/studio_smoke.py generated-smoke
+          python -m skellforge regenerate generated-smoke
       - name: Build JUCE and pinned SkellCore VST3
         run: cmake -S generated-smoke -B generated-smoke/build -A x64 -DSKELLFORGE_BUILD_DSP_TESTS=ON
       - name: Compile Release plugin
