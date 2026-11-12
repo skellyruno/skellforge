@@ -12,6 +12,7 @@ import shlex
 from pathlib import Path
 
 from .studio import default_studio, validate_studio, StudioError
+from .automation import SPEC, registry_specs
 
 MAX_BYTES = 32768
 MAX_LINES = 256
@@ -98,6 +99,22 @@ def compile_source(source: str) -> dict:
                 field: _number(amount, line_no, field),
             })
             nodes.add(name)
+        elif op == "reserve":
+            # Keep previously published host IDs, including retired nodes.
+            if len(parts) != 5:
+                raise SkellLangError(f"Line {line_no}: reserve expects id node kind default")
+            _, pid, node_id, kind, value = parts
+            if kind not in SPEC:
+                raise SkellLangError(f"Line {line_no}: unknown reserved kind")
+            item = SPEC[kind]
+            if pid != f"fx_{node_id}_{item['field']}":
+                raise SkellLangError(f"Line {line_no}: reserved parameter ID mismatch")
+            scene.setdefault("parameter_registry", []).append({
+                "id": pid, "node": node_id, "kind": kind,
+                "field": item["field"], "minimum": item["minimum"],
+                "maximum": item["maximum"], "step": item["step"],
+                "default": _number(value, line_no, "default"),
+            })
         elif op == "move":
             if len(parts) != 6 or parts[1] not in (
                     "skull", "title", "gain_label", "gain_knob"):
@@ -180,4 +197,86 @@ def export_json(source: Path, destination: Path) -> Path:
         raise SkellLangError(f"Refusing to overwrite existing file: {output}") from exc
     except OSError as exc:
         raise SkellLangError(f"Cannot export SkellLang JSON: {exc}") from exc
+    return output
+
+
+def format_source(scene: dict) -> str:
+    """Export a Studio design deterministically; never lose unknown data."""
+    from .automation import ParameterError
+    try:
+        validate_studio(scene)
+        registry = registry_specs(scene)
+    except (StudioError, ParameterError) as exc:
+        raise SkellLangError(f"Invalid Studio document: {exc}") from exc
+    if set(scene) - {"schema", "canvas", "components", "chain", "parameter_registry"}:
+        raise SkellLangError("Unknown Studio fields would be lost")
+    if set(scene["canvas"]) != {"width", "height"}:
+        raise SkellLangError("Unknown canvas fields would be lost")
+    lines = ["# Generated SkellLang design - stable IDs are preserved",
+             "skell 1",
+             f"canvas {scene['canvas']['width']} {scene['canvas']['height']}", ""]
+    for node in scene["chain"]:
+        expected = {"id", "type", "enabled"}
+        if node["type"] != "gain":
+            expected.add("drive" if node["type"] == "saturate" else "cutoff_hz")
+        if set(node) != expected:
+            raise SkellLangError(f"Unknown attributes on DSP node {node['id']}")
+    for comp in scene["components"]:
+        expected = {"id", "type", "x", "y", "w", "h"}
+        if comp["type"] in ("text", "meter", "effect_knob"):
+            expected.add("text")
+        if comp["type"] == "effect_knob":
+            expected.add("parameter_id")
+        if set(comp) != expected:
+            raise SkellLangError(f"Unknown attributes on UI {comp['id']}")
+    for spec in registry:
+        lines.append(f"reserve {spec['id']} {spec['node']} {spec['kind']} {spec['default']!r}")
+    if registry:
+        lines.append("")
+    for node in scene["chain"][1:]:
+        field = "drive" if node["type"] == "saturate" else "cutoff_hz"
+        lines.append(f"fx {node['type']} {node['id']} {node[field]!r} "
+                     + ("on" if node["enabled"] else "off"))
+    if len(scene["chain"]) > 1:
+        lines.append("")
+    defaults = {c["id"]: c for c in default_studio()["components"]}
+    for comp in scene["components"]:
+        rect = " ".join(str(comp[k]) for k in ("x", "y", "w", "h"))
+        if comp["id"] in defaults:
+            if any(comp[k] != defaults[comp["id"]][k] for k in ("x", "y", "w", "h")):
+                lines.append(f"move {comp['id']} {rect}")
+            continue
+        caption = shlex.quote(comp["text"])
+        if comp["type"] == "effect_knob":
+            bound = next((n for n in scene["chain"][1:] if comp["parameter_id"]
+                          == f"fx_{n['id']}_" + ("drive" if n["type"] == "saturate"
+                                                  else "cutoff_hz")), None)
+            if bound is None:
+                raise SkellLangError("Effect control refers to a missing processor")
+            lines.append(f"knob {comp['id']} {bound['id']} {caption} {rect}")
+        else:
+            lines.append(f"{comp['type']} {comp['id']} {caption} {rect}")
+    output = "\n".join(lines).rstrip() + "\n"
+    if compile_source(output) != scene:
+        raise SkellLangError("Round-trip changed the Studio document; export refused")
+    return output
+
+
+def export_from_studio(project: Path, destination: Path) -> Path:
+    """Read saved Studio JSON and exclusively create its .skell source file."""
+    from .studio import load_studio
+    try:
+        output_text = format_source(load_studio(Path(project)))
+    except (OSError, StudioError) as exc:
+        raise SkellLangError(f"Cannot read Studio design: {exc}") from exc
+    output = Path(destination).expanduser()
+    if output.suffix != ".skell":
+        raise SkellLangError("Source files must use the .skell extension")
+    if not output.parent.is_dir():
+        raise SkellLangError("Destination folder does not exist")
+    try:
+        with output.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write(output_text)
+    except FileExistsError as exc:
+        raise SkellLangError(f"Refusing to overwrite existing file: {output}") from exc
     return output
