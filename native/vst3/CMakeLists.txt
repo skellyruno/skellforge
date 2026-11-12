@@ -13,13 +13,13 @@ set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 if(SKELLNATIVE_STEINBERG_SDK)
-  if(NOT EXISTS "\${SKELLNATIVE_STEINBERG_SDK}/CMakeLists.txt" OR
-     NOT EXISTS "\${SKELLNATIVE_STEINBERG_SDK}/public.sdk/CMakeLists.txt" OR
-     NOT EXISTS "\${SKELLNATIVE_STEINBERG_SDK}/pluginterfaces/CMakeLists.txt")
+  if(NOT EXISTS "${SKELLNATIVE_STEINBERG_SDK}/CMakeLists.txt" OR
+     NOT EXISTS "${SKELLNATIVE_STEINBERG_SDK}/public.sdk/CMakeLists.txt" OR
+     NOT EXISTS "${SKELLNATIVE_STEINBERG_SDK}/pluginterfaces/CMakeLists.txt")
     message(FATAL_ERROR "SDK path must be a COMPLETE recursive VST3 SDK checkout")
   endif()
-  set(SDK_ROOT "\${SKELLNATIVE_STEINBERG_SDK}")
-  add_subdirectory("\${SDK_ROOT}" "\${CMAKE_CURRENT_BINARY_DIR}/steinberg")
+  set(SDK_ROOT "${SKELLNATIVE_STEINBERG_SDK}")
+  add_subdirectory("${SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/steinberg")
 else()
   include(FetchContent)
   FetchContent_Declare(
@@ -30,12 +30,12 @@ else()
     GIT_SUBMODULES_RECURSE TRUE
   )
   FetchContent_MakeAvailable(skell_steinberg_sdk)
-  set(SDK_ROOT "\${skell_steinberg_sdk_SOURCE_DIR}")
+  set(SDK_ROOT "${skell_steinberg_sdk_SOURCE_DIR}")
 endif()
 
 add_library(SkellNativeDSP INTERFACE)
 target_include_directories(SkellNativeDSP INTERFACE
-  "\${CMAKE_CURRENT_LIST_DIR}/../include")
+  "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(SkellNativeDSP INTERFACE cxx_std_17)
 
 smtg_add_vst3plugin(SkellNativeGain
@@ -46,7 +46,7 @@ smtg_add_vst3plugin(SkellNativeGain
   Source/NativeGainStateBridge.h
 )
 target_compile_features(SkellNativeGain PRIVATE cxx_std_17)
-target_include_directories(SkellNativeGain PRIVATE "\${CMAKE_CURRENT_LIST_DIR}/Source")
+target_include_directories(SkellNativeGain PRIVATE "${CMAKE_CURRENT_LIST_DIR}/Source")
 target_link_libraries(SkellNativeGain PRIVATE sdk SkellNativeDSP)
 
 # Host validator and real FL Studio session tests are separate release gates.
