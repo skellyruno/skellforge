@@ -68,7 +68,7 @@ endif()
 # generated VST3. Explicit target: excluded from ordinary plugin builds.
 option(SKELLFORGE_BUILD_UI_PREVIEW "Build actual JUCE editor screenshot tool" OFF)
 if(SKELLFORGE_BUILD_UI_PREVIEW)
-  juce_add_gui_app(SkellForgeUiPreview PRODUCT_NAME "SkellForge UI Preview")
+  juce_add_console_app(SkellForgeUiPreview PRODUCT_NAME "SkellForgeUiPreview")
   juce_generate_juce_header(SkellForgeUiPreview)
   target_sources(SkellForgeUiPreview PRIVATE
     tests/ForgeUIRender.cpp
