@@ -49,3 +49,17 @@ target_compile_definitions(@@TARGET@@ PRIVATE
 target_link_libraries(@@TARGET@@ PRIVATE
   SkellCore::DSP SkellCore::UI
   juce::juce_audio_utils juce::juce_audio_processors juce::juce_gui_extra)
+
+# Optional real C++ offline DSP fixtures, independent from FL Studio.
+option(SKELLFORGE_BUILD_DSP_TESTS "Build and run Forge-generated JUCE DSP fixtures" OFF)
+if(SKELLFORGE_BUILD_DSP_TESTS)
+  enable_testing()
+  add_executable(SkellForgeDspSmoke tests/ForgeDspSmoke.cpp)
+  target_include_directories(SkellForgeDspSmoke PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/Source")
+  target_compile_features(SkellForgeDspSmoke PRIVATE cxx_std_17)
+  target_compile_definitions(SkellForgeDspSmoke PRIVATE
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+  target_link_libraries(SkellForgeDspSmoke PRIVATE
+    juce::juce_audio_processors juce::juce_audio_basics juce::juce_core)
+  add_test(NAME SkellForgeDspSmoke COMMAND SkellForgeDspSmoke)
+endif()
