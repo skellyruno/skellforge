@@ -168,11 +168,18 @@ def render_ui(data: dict) -> str:
     return "".join(pieces)
 
 
+def _cpp_float(value: float) -> str:
+    raw = format(float(value), ".9g")
+    if "." not in raw and "e" not in raw.lower():
+        raw += ".0"
+    return raw
+
+
 def render_graph(data: dict) -> str:
     validate_studio(data)
     pieces = [
         HEADER, "#pragma once\n#include <JuceHeader.h>\n",
-        "#include <array>\n#include <cmath>\n",
+        "#include <algorithm>\n#include <array>\n#include <cmath>\n",
         "namespace forgedsp {\nclass Graph {\npublic:\n",
         "    void prepare(double sampleRate) noexcept {\n",
         "        const double rate = std::isfinite(sampleRate) && sampleRate > 1000.0 ? sampleRate : 48000.0;\n",
@@ -183,10 +190,10 @@ def render_graph(data: dict) -> str:
             cutoff = float(node["cutoff_hz"])
             pieces.append(
                 f"        coeff_{index}_ = static_cast<float>(std::exp(-6.283185307179586 * "
-                f"std::min({cutoff:.9g}, rate * 0.45) / rate));\n"
+                f"std::min({_cpp_float(cutoff)}, rate * 0.45) / rate));\n"
                 f"        state_{index}_.fill(0.0f);\n"
             )
-    pieces.append("    }\n")
+    pieces.append("        (void)rate;\n    }\n")
     pieces.extend([
         "    void process(juce::AudioBuffer<float>& audio) noexcept {\n",
         "        const int samples = audio.getNumSamples();\n",
@@ -200,12 +207,12 @@ def render_graph(data: dict) -> str:
             # full-scale signal beyond ±1, provided the input was already ±1.
             pieces.extend([
                 f"        // {node['id']}: enabled saturation (static drive)\n",
-                f"        constexpr float drive_{index} = {drive:.9g}f;\n",
+                f"        constexpr float drive_{index} = {_cpp_float(drive)}f;\n",
                 f"        const float normalizer_{index} = 1.0f / std::tanh(drive_{index});\n",
                 "        for (int ch = 0; ch < channels; ++ch) {\n",
                 "            auto* s = audio.getWritePointer(ch);\n",
                 "            for (int i = 0; i < samples; ++i)\n",
-                f"                s[i] = std::tanh(s[i] * drive_{index}) * normalizer_{index};\n",
+                f"                s[i] = std::tanh((std::isfinite(s[i]) ? s[i] : 0.0f) * drive_{index}) * normalizer_{index};\n",
                 "        }\n",
             ])
         elif node["type"] == "lowpass":
@@ -215,14 +222,15 @@ def render_graph(data: dict) -> str:
                 "            auto* s = audio.getWritePointer(ch);\n",
                 f"            float history = state_{index}_[static_cast<size_t>(ch)];\n",
                 "            for (int i = 0; i < samples; ++i) {\n",
-                f"                history = coeff_{index}_ * history + (1.0f - coeff_{index}_) * s[i];\n",
+                f"                const float clean = std::isfinite(s[i]) ? s[i] : 0.0f;\n",
+                f"                history = coeff_{index}_ * history + (1.0f - coeff_{index}_) * clean;\n",
                 "                s[i] = history;\n",
                 "            }\n",
                 f"            state_{index}_[static_cast<size_t>(ch)] = "
                 "std::abs(history) < 1.0e-20f ? 0.0f : history;\n",
                 "        }\n",
             ])
-    pieces.append("    }\nprivate:\n")
+    pieces.append("        (void)channels;\n    }\nprivate:\n")
     for index, node in enumerate(enabled_nodes):
         if node["type"] == "lowpass":
             pieces.append(f"    float coeff_{index}_ = 0.0f;\n")
