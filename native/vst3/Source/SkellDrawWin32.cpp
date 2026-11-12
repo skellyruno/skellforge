@@ -233,8 +233,8 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     HDC dc=BeginPaint(hwnd,&paint);
     if (!dc) return;
     RECT client{}; GetClientRect(hwnd,&client);
-    const int width=std::max(1,client.right);
-    const int height=std::max(1,client.bottom);
+    const int width=std::max(1,static_cast<int>(client.right));
+    const int height=std::max(1,static_cast<int>(client.bottom));
     HDC buffer=CreateCompatibleDC(dc);
     HBITMAP bitmap=buffer ? CreateCompatibleBitmap(dc,width,height):nullptr;
     if(!buffer || !bitmap) {
