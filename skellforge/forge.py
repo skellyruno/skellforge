@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import __version__
 from .audit import audit_project
+from .studio import init_studio, regenerate, load_studio, StudioError
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
@@ -147,6 +148,7 @@ def create_project(name: str, destination: Path, code: str,
         for filename, content in (("skellforge.json", manifest), ("skellworld.json", world)):
             (destination / filename).write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
         validate_project(destination)
+        init_studio(destination)
     except BaseException:
         shutil.rmtree(destination)
         raise
@@ -192,6 +194,8 @@ def validate_project(project: Path) -> dict:
 def build_project(project: Path, juce_path: Path | None = None,
                   core_path: Path | None = None, parallel: int = 2) -> None:
     validate_project(project)
+    if (project / "forge-studio.json").is_file():
+        regenerate(project)
     if sys.platform != "win32":
         raise ForgeError("Windows VST3 build requires Windows; generate/validate works cross-platform")
     if shutil.which("cmake") is None:
@@ -308,6 +312,6 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "doctor":
             doctor()
         return 0
-    except (ForgeError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (ForgeError, StudioError, OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"SkellForge error: {exc}", file=sys.stderr)
         return 1
