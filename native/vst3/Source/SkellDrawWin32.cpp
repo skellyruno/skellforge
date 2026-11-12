@@ -8,7 +8,6 @@
 #include <cstdio>
 #include <cstring>
 #include <cwchar>
-#include <mutex>
 
 namespace Skelly::NativeGain {
 
@@ -91,33 +90,31 @@ Steinberg::tresult PLUGIN_API SkellDrawView::isPlatformTypeSupported(
     return type && std::strcmp(type, Steinberg::kPlatformTypeHWND)==0
         ? Steinberg::kResultTrue : Steinberg::kResultFalse;
 }
-bool SkellDrawView::registerWindowClass() noexcept {
-    static std::once_flag once;
-    static bool registered=false;
-    std::call_once(once, [] {
-        WNDCLASSEXW wc{};
-        wc.cbSize=sizeof(wc);
-        wc.style=CS_DBLCLKS;
-        wc.lpfnWndProc=&SkellDrawView::windowProc;
-        wc.hInstance=GetModuleHandleW(nullptr);
-        wc.hCursor=LoadCursorW(nullptr,IDC_HAND);
-        wc.lpszClassName=kClassName;
-        registered = RegisterClassExW(&wc)!=0
-            || GetLastError()==ERROR_CLASS_ALREADY_EXISTS;
-    });
-    return registered;
-}
 Steinberg::tresult PLUGIN_API SkellDrawView::attached(
     void* parent, Steinberg::FIDString type) {
-    if (window_ || !parent || isPlatformTypeSupported(type)!=Steinberg::kResultTrue
-        || !registerWindowClass()) return Steinberg::kResultFalse;
+    if (window_ || !parent || isPlatformTypeSupported(type)!=Steinberg::kResultTrue)
+        return Steinberg::kResultFalse;
+    // Subclass a standard OS control, avoiding persistent DLL-registered
+    // window classes and stale WndProc addresses after host unload/reload.
     const auto& rect=getRect();
-    const HWND hwnd=CreateWindowExW(0,kClassName,L"SkellNative",WS_CHILD|WS_VISIBLE|
-                     WS_CLIPSIBLINGS,0,0,rect.getWidth(),rect.getHeight(),
-                     static_cast<HWND>(parent),nullptr,GetModuleHandleW(nullptr),this);
+    const HWND hwnd=CreateWindowExW(0,L"STATIC",kClassName,
+                     WS_CHILD|WS_VISIBLE|WS_CLIPSIBLINGS|SS_NOTIFY,
+                     0,0,rect.getWidth(),rect.getHeight(),
+                     static_cast<HWND>(parent),nullptr,GetModuleHandleW(nullptr),nullptr);
     if (!hwnd) return Steinberg::kResultFalse;
+    SetWindowLongPtrW(hwnd,GWLP_USERDATA,reinterpret_cast<LONG_PTR>(this));
+    SetLastError(0);
+    const auto prior=SetWindowLongPtrW(hwnd,GWLP_WNDPROC,
+                                      reinterpret_cast<LONG_PTR>(&SkellDrawView::windowProc));
+    if (!prior && GetLastError()!=0) {
+        SetWindowLongPtrW(hwnd,GWLP_USERDATA,0);
+        DestroyWindow(hwnd);
+        return Steinberg::kResultFalse;
+    }
+    originalWindowProc_=reinterpret_cast<WNDPROC>(prior);
     window_=hwnd;
     SetTimer(hwnd,kPollTimer,40,nullptr);
+    InvalidateRect(hwnd,nullptr,FALSE);
     return Steinberg::CPluginView::attached(parent,type);
 }
 Steinberg::tresult PLUGIN_API SkellDrawView::removed() {
@@ -126,6 +123,11 @@ Steinberg::tresult PLUGIN_API SkellDrawView::removed() {
         const HWND hwnd=window_;
         window_=nullptr;
         KillTimer(hwnd,kPollTimer);
+        if (originalWindowProc_)
+            SetWindowLongPtrW(hwnd,GWLP_WNDPROC,
+                              reinterpret_cast<LONG_PTR>(originalWindowProc_));
+        SetWindowLongPtrW(hwnd,GWLP_USERDATA,0);
+        originalWindowProc_=nullptr;
         DestroyWindow(hwnd);
     }
     return Steinberg::CPluginView::removed();
@@ -187,17 +189,8 @@ void SkellDrawView::updateTimer() noexcept {
     if (std::abs(lastPaintGain_-value)>0.001f) redraw();
 }
 LRESULT CALLBACK SkellDrawView::windowProc(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
-    if (msg==WM_NCCREATE) {
-        const auto* cs=reinterpret_cast<const CREATESTRUCTW*>(l);
-        SetWindowLongPtrW(hwnd,GWLP_USERDATA,
-                          reinterpret_cast<LONG_PTR>(cs->lpCreateParams));
-    }
     auto* self=reinterpret_cast<SkellDrawView*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
     if (!self) return DefWindowProcW(hwnd,msg,w,l);
-    if (msg==WM_NCDESTROY) {
-        SetWindowLongPtrW(hwnd,GWLP_USERDATA,0);
-        return DefWindowProcW(hwnd,msg,w,l);
-    }
     return self->dispatch(hwnd,msg,w,l);
 }
 LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
@@ -231,7 +224,9 @@ LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
     case WM_DESTROY: editEnd(); return 0;
     default: break;
     }
-    return DefWindowProcW(hwnd,msg,w,l);
+    return originalWindowProc_
+        ? CallWindowProcW(originalWindowProc_,hwnd,msg,w,l)
+        : DefWindowProcW(hwnd,msg,w,l);
 }
 void SkellDrawView::paint(HWND hwnd) noexcept {
     PAINTSTRUCT paint{};
@@ -298,6 +293,7 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     label(buffer,L"SKELL AUDIO  |  NO JUCE",11,FW_NORMAL,31,254,416,16,RGB(116,139,120),DT_LEFT);
     label(buffer,L"WINDOWS VST3",10,FW_NORMAL,342,254,100,16,kMuted,DT_RIGHT);
 
+    SetMapMode(buffer,MM_TEXT); // Source bitmap pixels, not logical UI units.
     BitBlt(dc,0,0,width,height,buffer,0,0,SRCCOPY);
     SelectObject(buffer,original);
     DeleteObject(bitmap);

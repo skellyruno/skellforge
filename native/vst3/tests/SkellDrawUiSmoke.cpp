@@ -49,7 +49,7 @@ int main() {
     if (!verify(view.attached(parent,kPlatformTypeHWND)==kResultFalse,
                 "duplicate attach rejected")) { view.removed(); cleanup(); return 1; }
 
-    HWND child=FindWindowExW(parent,nullptr,L"SkellNativeSkellDrawView_0_1",nullptr);
+    HWND child=FindWindowExW(parent,nullptr,L"STATIC",L"SkellNativeSkellDrawView_0_1");
     if (!verify(child!=nullptr && IsWindow(child),
                 "actual child window embedded")) { view.removed(); cleanup(); return 1; }
     InvalidateRect(child,nullptr,FALSE);

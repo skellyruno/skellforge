@@ -35,7 +35,6 @@ public:
 private:
     static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM w, LPARAM l);
     LRESULT dispatch(HWND window, UINT message, WPARAM w, LPARAM l);
-    static bool registerWindowClass() noexcept;
     void paint(HWND window) noexcept;
     void editStart(int y) noexcept;
     void editMove(int y) noexcept;
@@ -47,6 +46,7 @@ private:
     GainViewDelegate& delegate_;
     Steinberg::FUnknown* owner_ = nullptr;
     HWND window_ = nullptr;
+    WNDPROC originalWindowProc_ = nullptr;
     bool dragging_ = false;
     int dragStartY_ = 0;
     float dragStartGain_ = 0.5f;
