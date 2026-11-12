@@ -10,6 +10,7 @@ from skellforge.automation import (
     ParameterError, active_specs, registry_specs, sync_registry, unified_specs,
 )
 from skellforge.forge import create_project
+from skellforge.local import verify_dsp_test_registered
 from skellforge.studio import (
     StudioError, load_studio, regenerate, save_studio, validate_studio,
 )
@@ -29,6 +30,21 @@ class AutomationTests(unittest.TestCase):
     @staticmethod
     def _filter():
         return {"id": "lowpass_1", "type": "lowpass", "enabled": True, "cutoff_hz": 8000.0}
+
+    def test_native_dsp_test_gate_never_accepts_zero_tests(self):
+        build = self.project / "build"
+        build.mkdir()
+        with self.assertRaisesRegex(Exception, "compiled"):
+            verify_dsp_test_registered(build)
+        app = build / "Release" / "SkellForgeDspSmoke.exe"
+        app.parent.mkdir()
+        app.write_bytes(b"stub for registration test")
+        with self.assertRaisesRegex(Exception, "registered"):
+            verify_dsp_test_registered(build)
+        (build / "CTestTestfile.cmake").write_text(
+            'add_test(SkellForgeDspSmoke "Release/SkellForgeDspSmoke.exe")',
+            encoding="utf-8")
+        self.assertEqual(verify_dsp_test_registered(build), app)
 
     def test_generated_default_has_no_surprise_effects(self):
         doc = load_studio(self.project)
