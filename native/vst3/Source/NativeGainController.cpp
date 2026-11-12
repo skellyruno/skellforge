@@ -1,14 +1,18 @@
-// Original Skelly controller/parameter adapter, independent of JUCE.
+// Native gain controller + custom SkellDraw Win32 view; no JUCE or VSTGUI.
 #include "NativeGainIDs.h"
 #include "NativeGainStateBridge.h"
+#include "SkellDrawWin32.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
 #include "pluginterfaces/base/ibstream.h"
+#include <algorithm>
+#include <cmath>
+#include <cstring>
 
 namespace Skelly::NativeGain {
 using namespace Steinberg;
 using namespace Steinberg::Vst;
 
-class GainController final : public EditController {
+class GainController final : public EditController, private GainViewDelegate {
 public:
     static FUnknown* createInstance(void*) {
         return static_cast<IEditController*>(new GainController());
@@ -28,8 +32,32 @@ public:
         return setParamNormalized(kGainParam, *normalized);
     }
 
-    IPlugView* PLUGIN_API createView(FIDString) override {
-        return nullptr; // For now: use the host's generic parameter UI
+    IPlugView* PLUGIN_API createView(FIDString name) override {
+        if (!name || std::strcmp(name, ViewType::kEditor)!=0)
+            return nullptr;
+        // The view retains a COM/FUnknown reference to this controller so
+        // its delegate can't dangle if the host releases the controller first.
+        return new SkellDrawView(*this, static_cast<IEditController*>(this));
+    }
+
+private:
+    float getGain() const noexcept override {
+        const double value = const_cast<GainController*>(this)
+                                 ->getParamNormalized(kGainParam);
+        return std::isfinite(value)
+            ? std::clamp(static_cast<float>(value),0.0f,1.0f) : 0.5f;
+    }
+    void beginGain() noexcept override {
+        beginEdit(kGainParam);
+    }
+    void updateGain(float value) noexcept override {
+        if (!std::isfinite(value)) return;
+        const auto normalized=std::clamp(static_cast<double>(value),0.0,1.0);
+        setParamNormalized(kGainParam,normalized);  // update local GUI immediately
+        performEdit(kGainParam,normalized);          // send DAW automation gesture
+    }
+    void endGain() noexcept override {
+        endEdit(kGainParam);
     }
 };
 
