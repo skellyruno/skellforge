@@ -151,6 +151,39 @@ class AutomationTests(unittest.TestCase):
         with self.assertRaises(StudioError):
             validate_studio(doc)
 
+    def test_real_output_meter_codegen_and_lockfree_processor_feed(self):
+        doc = load_studio(self.project)
+        doc["components"].append({
+            "id": "meter_1", "type": "meter", "text": "OUTPUT",
+            "x": 20, "y": 266, "w": 166, "h": 24,
+        })
+        save_studio(self.project, doc)
+        regenerated = regenerate(self.project)
+        self.assertEqual(regenerated, ["ForgeUI.h"])
+        ui = (self.project / "Source" / "ForgeUI.h").read_text()
+        self.assertIn("class OutputMeter final", ui)
+        self.assertIn("source_->load(std::memory_order_relaxed)", ui)
+        self.assertIn("juce::Timer", ui)
+        self.assertIn("startTimerHz(24)", ui)
+        self.assertIn("std::make_unique<OutputMeter>(outputPeak", ui)
+        processor = (self.project / "Source" / "PluginProcessor.cpp").read_text()
+        self.assertIn("audio.getMagnitude(channel, 0, frames)", processor)
+        self.assertIn("outputPeak_.store(", processor)
+        editor = (self.project / "Source" / "PluginEditor.cpp").read_text()
+        self.assertIn("&processor.outputPeak()", editor)
+        self.assertEqual(regenerate(self.project), [])
+
+    def test_meter_bounds_and_caption_are_validated(self):
+        doc = load_studio(self.project)
+        doc["components"].append({
+            "id": "meter_1", "type": "meter", "text": "",
+            "x": 20, "y": 266, "w": 166, "h": 24,
+        })
+        with self.assertRaisesRegex(StudioError, "captions"):
+            validate_studio(doc)
+        doc["components"][-1]["text"] = "OUTPUT"
+        validate_studio(doc)
+
     def test_generated_header_preflight_is_all_or_nothing(self):
         doc = load_studio(self.project)
         before_ui = (self.project / "Source" / "ForgeUI.h").read_bytes()
