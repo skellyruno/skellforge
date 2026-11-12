@@ -2,6 +2,8 @@
 #include "NativeGainIDs.h"
 #include "public.sdk/source/main/pluginfactory_constexpr.h"
 #include "pluginterfaces/vst/vsttypes.h"
+#include "pluginterfaces/vst/ivstaudioprocessor.h"
+#include "pluginterfaces/vst/ivsteditcontroller.h"
 
 namespace Skelly::NativeGain {
 Steinberg::FUnknown* createProcessor(void*);
