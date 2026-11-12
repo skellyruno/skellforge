@@ -153,7 +153,7 @@ class NativeVST3VerificationTests(unittest.TestCase):
         (previous / "old.txt").write_text("previous version")
         with patch("skellforge.local.sys.platform", "win32"):
             result = install_verified_vst3(project, folder)
-        self.assertEqual(result["installed"], str(previous))
+        self.assertTrue(Path(result["installed"]).samefile(previous))
         self.assertTrue((previous / "Contents" / "x86_64-win" / "Skell Pulse.vst3").is_file())
         self.assertFalse((previous / "old.txt").exists())
         backup = Path(result["backup"])
