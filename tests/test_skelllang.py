@@ -11,6 +11,7 @@ from pathlib import Path
 from skellforge.forge import main, validate_project
 from skellforge.skelllang import (
     SkellLangError, compile_source, compile_file, export_json,
+    format_source, export_from_studio,
 )
 from skellforge.studio import load_studio
 
@@ -124,6 +125,66 @@ class SkellLangTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main(["lang-new", str(self.source), "Skell Warmth",
                                    str(destination), "--code", "SZ91"]), 1)
+
+    def test_source_roundtrip_without_registry(self):
+        scene = compile_source(GOOD)
+        output = format_source(scene)
+        self.assertEqual(compile_source(output), scene)
+        self.assertEqual(format_source(compile_source(output)), output)
+
+    def test_source_roundtrip_with_saved_parameter_identity(self):
+        destination = self.root / "roundtripplugin"
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["lang-new", str(self.source), "Skell Roundtrip",
+                                   str(destination), "--code", "SZ92"]), 0)
+        saved = load_studio(destination)
+        self.assertEqual(len(saved["parameter_registry"]), 2)
+        output = self.root / "roundtrip.skell"
+        export_from_studio(destination, output)
+        self.assertEqual(compile_file(output), saved)
+        self.assertIn("reserve fx_warmth_drive warmth saturate 2.5",
+                      output.read_text(encoding="utf-8"))
+        self.assertEqual(format_source(saved), output.read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(SkellLangError, "Refusing to overwrite"):
+            export_from_studio(destination, output)
+
+    def test_roundtrip_default_studio_not_modified(self):
+        destination = self.root / "blankplugin"
+        from skellforge.forge import create_project
+        create_project("Skell Blank", destination, "SZ93")
+        before = (destination / "forge-studio.json").read_bytes()
+        source_path = self.root / "blank.skell"
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["lang-from-studio", str(destination),
+                                   str(source_path)]), 0)
+        self.assertEqual(before, (destination / "forge-studio.json").read_bytes())
+        self.assertEqual(compile_file(source_path), load_studio(destination))
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["lang-from-studio", str(destination),
+                                   str(source_path)]), 1)
+
+    def test_unknown_fields_refused_not_silently_removed(self):
+        original = compile_source(GOOD)
+        original["component_extension"] = {"version": 2}
+        with self.assertRaisesRegex(SkellLangError, "Unknown Studio fields"):
+            format_source(original)
+        original.pop("component_extension")
+        original["components"][4]["future_ui_prop"] = True
+        with self.assertRaisesRegex(SkellLangError, "Unknown attributes"):
+            format_source(original)
+
+    def test_quoted_captions_survive_source_export(self):
+        model = compile_source(
+            "skell 1\ntext label1 \"It\\'s Skelly's world\" 20 266 230 22\n")
+        source = format_source(model)
+        self.assertEqual(compile_source(source), model)
+
+    def test_wrong_extension_rejected(self):
+        from skellforge.forge import create_project
+        destination = self.root / "another"
+        create_project("Skell Another", destination, "SZ94")
+        with self.assertRaisesRegex(SkellLangError, ".skell extension"):
+            export_from_studio(destination, self.root / "bad.txt")
 
     def test_cli_check_and_export(self):
         output = self.root / "export.json"
