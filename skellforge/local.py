@@ -60,6 +60,23 @@ def find_verified_vst3(project: Path) -> tuple[Path, Path]:
     return bundle, binary
 
 
+def verify_dsp_test_registered(build: Path) -> Path:
+    """Prevent zero-test CTest runs from being mistaken for a verified plugin."""
+    if not build.is_dir():
+        raise ForgeError("CMake build directory is missing")
+    programs = sorted(path for path in build.rglob("SkellForgeDspSmoke.exe")
+                      if path.is_file())
+    if len(programs) != 1:
+        raise ForgeError(
+            f"Expected one compiled SkellForgeDspSmoke.exe, found {len(programs)}")
+    test_files = [path for path in build.rglob("CTestTestfile.cmake")
+                  if path.is_file()]
+    if not any("SkellForgeDspSmoke" in p.read_text(encoding="utf-8", errors="replace")
+               for p in test_files):
+        raise ForgeError("Offline DSP test was not registered with CTest")
+    return programs[0]
+
+
 def _run_command(command: list[str], log: LogCallback, *, cwd: Path) -> None:
     log("EXEC: " + subprocess.list2cmdline(command))
     process = subprocess.Popen(command, cwd=str(cwd), shell=False, stdout=subprocess.PIPE,
@@ -124,6 +141,7 @@ def build_and_export(project: Path, *, juce_path: Path | None = None,
                       "--parallel", str(parallel)], log, cwd=project)
         record["steps"].append("compile")
         log("[4/6] Testing 44.1/48/96 kHz, varied block sizes and audio safety")
+        verify_dsp_test_registered(project / "build")
         _run_command(["ctest", "--test-dir", str(project / "build"), "-C",
                       "Release", "--output-on-failure", "-R",
                       "^SkellForgeDspSmoke$"], log, cwd=project)
