@@ -6,7 +6,7 @@
 #include "public.sdk/source/vst/vstaudioeffect.h"
 #include "pluginterfaces/vst/ivstparameterchanges.h"
 #include <algorithm>
-#include <array>
+#include <cstring>
 #include <cmath>
 
 namespace Skelly::NativeGain {
@@ -58,34 +58,18 @@ public:
             }
         }
         const int32 points = gainQueue ? gainQueue->getPointCount() : 0;
-        int32 nextPoint = 0;
-        int32 nextOffset = 0;
-        ParamValue nextValue = 0.0;
-        bool cachedPoint = false;
-        // Cache the next host event instead of calling the virtual queue API
-        // once per audio sample. Work is proportional to event count.
-        const auto applyAutomation = [&](int32 frame) noexcept {
-            while (gainQueue && nextPoint < points) {
-                if (!cachedPoint) {
-                    if (gainQueue->getPoint(nextPoint, nextOffset, nextValue)
-                        != kResultTrue) {
-                        ++nextPoint;
-                        continue;
-                    }
-                    cachedPoint = true;
-                }
-                if (nextOffset > frame) break;
-                if (nextOffset >= 0 && std::isfinite(nextValue))
-                    normalized_ = std::clamp(static_cast<float>(nextValue), 0.0f, 1.0f);
-                cachedPoint = false;
-                ++nextPoint;
-            }
-        };
-
         if (data.numSamples == 0) {
-            applyAutomation(0);
+            // A zero-length block can still carry parameter changes.
+            for (int32 point = 0; point < points; ++point) {
+                int32 at = 0;
+                ParamValue value = 0.0;
+                if (gainQueue->getPoint(point, at, value) == kResultTrue &&
+                    at >= 0 && std::isfinite(value))
+                    normalized_ = std::clamp(static_cast<float>(value), 0.0f, 1.0f);
+            }
             return kResultOk;
         }
+
         if (!data.inputs || !data.outputs || data.numInputs < 1 || data.numOutputs < 1)
             return kResultFalse;
         auto& input = data.inputs[0];
@@ -94,45 +78,86 @@ public:
         if (channels < 1 || channels > 2) return kResultFalse;
         if (data.symbolicSampleSize != kSample32 && data.symbolicSampleSize != kSample64)
             return kResultFalse;
-        if ((data.symbolicSampleSize == kSample32 &&
-             (!input.channelBuffers32 || !output.channelBuffers32)) ||
-            (data.symbolicSampleSize == kSample64 &&
-             (!input.channelBuffers64 || !output.channelBuffers64)))
+
+        const bool float32 = data.symbolicSampleSize == kSample32;
+        if ((float32 && (!input.channelBuffers32 || !output.channelBuffers32)) ||
+            (!float32 && (!input.channelBuffers64 || !output.channelBuffers64)))
             return kResultFalse;
 
         const auto channelMask = (static_cast<uint64>(1) << channels) - 1;
-        const bool silentInput = (input.silenceFlags & channelMask) == channelMask;
-        output.silenceFlags = silentInput ? channelMask : 0;
+        output.silenceFlags = input.silenceFlags & channelMask;
 
-        // Each host event is applied at its sample offset (not block-end).
-        // There are no heap allocations, locks, GUI calls or file accesses.
-        for (int32 i = 0; i < data.numSamples; ++i) {
-            applyAutomation(i);
-            const float gain = std::clamp(normalized_ * 2.0f, 0.0f, 2.0f);
-            if (data.symbolicSampleSize == kSample32) {
-                kernel_.setLinear(gain);
-                skellnative::Block oneSample;
-                oneSample.channelCount = static_cast<std::size_t>(channels);
-                oneSample.frames = 1;
-                for (int32 ch = 0; ch < channels; ++ch) {
-                    auto* dest = output.channelBuffers32[ch];
-                    const auto* src = input.channelBuffers32[ch];
-                    if (!dest || (!src && !silentInput)) return kResultFalse;
-                    dest[i] = silentInput ? 0.0f : skellnative::finiteOrZero(src[i]);
-                    oneSample.channel[ch] = dest + i;
-                }
-                if (!kernel_.process(oneSample)) return kResultFalse;
+        // Validate ALL host channel pointers before changing any output.
+        for (int32 ch = 0; ch < channels; ++ch) {
+            const bool silent = (input.silenceFlags & (static_cast<uint64>(1) << ch)) != 0;
+            if (float32) {
+                if (!output.channelBuffers32[ch] || (!silent && !input.channelBuffers32[ch]))
+                    return kResultFalse;
             } else {
-                for (int32 ch = 0; ch < channels; ++ch) {
-                    auto* dest = output.channelBuffers64[ch];
-                    const auto* src = input.channelBuffers64[ch];
-                    if (!dest || (!src && !silentInput)) return kResultFalse;
-                    const double sample = silentInput ? 0.0 : src[i];
-                    dest[i] = std::isfinite(sample)
-                        ? sample * static_cast<double>(gain) : 0.0;
-                }
+                if (!output.channelBuffers64[ch] || (!silent && !input.channelBuffers64[ch]))
+                    return kResultFalse;
             }
         }
+
+        // Process one contiguous span per automation point, usually ONE call
+        // for the whole block. No allocations, locks or per-sample host queries.
+        const auto processRange = [&](int32 begin, int32 end) noexcept -> bool {
+            if (end <= begin) return true;
+            const auto frames = static_cast<std::size_t>(end - begin);
+            const float linear = std::clamp(normalized_ * 2.0f, 0.0f, 2.0f);
+            if (float32) {
+                skellnative::Block block;
+                block.frames = frames;
+                block.channelCount = static_cast<std::size_t>(channels);
+                for (int32 ch = 0; ch < channels; ++ch) {
+                    float* dest = output.channelBuffers32[ch] + begin;
+                    const bool silent = (input.silenceFlags &
+                        (static_cast<uint64>(1) << ch)) != 0;
+                    if (silent) {
+                        std::fill_n(dest, frames, 0.0f);
+                    } else {
+                        const float* source = input.channelBuffers32[ch] + begin;
+                        if (dest != source)
+                            std::memmove(dest, source, frames * sizeof(float));
+                    }
+                    block.channel[static_cast<std::size_t>(ch)] = dest;
+                }
+                kernel_.setLinear(linear);
+                return kernel_.process(block);
+            }
+            for (int32 ch = 0; ch < channels; ++ch) {
+                double* dest = output.channelBuffers64[ch] + begin;
+                const bool silent = (input.silenceFlags &
+                    (static_cast<uint64>(1) << ch)) != 0;
+                if (silent) {
+                    std::fill_n(dest, frames, 0.0);
+                    continue;
+                }
+                const double* source = input.channelBuffers64[ch] + begin;
+                for (std::size_t i = 0; i < frames; ++i) {
+                    const double sample = source[i];
+                    const double result = std::isfinite(sample)
+                        ? sample * static_cast<double>(linear) : 0.0;
+                    dest[i] = std::isfinite(result) ? result : 0.0;
+                }
+            }
+            return true;
+        };
+
+        int32 cursor = 0;
+        for (int32 point = 0; point < points; ++point) {
+            int32 offset = 0;
+            ParamValue value = 0.0;
+            if (gainQueue->getPoint(point, offset, value) != kResultTrue ||
+                offset < 0 || !std::isfinite(value))
+                continue;
+            const int32 at = std::min(offset, data.numSamples);
+            if (at < cursor) continue;  // Ignore unsorted host events.
+            if (!processRange(cursor, at)) return kResultFalse;
+            normalized_ = std::clamp(static_cast<float>(value), 0.0f, 1.0f);
+            cursor = at;
+        }
+        if (!processRange(cursor, data.numSamples)) return kResultFalse;
         return kResultOk;
     }
 
