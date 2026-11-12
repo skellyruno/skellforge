@@ -1,0 +1,48 @@
+name: SkellNative direct VST3 — no JUCE
+on:
+  push:
+    branches:
+      - "feature/skellnative-direct-vst3-gain"
+    paths:
+      - "native/**"
+      - "tools/check_skellnative_vst3.py"
+      - "tests/test_native_direct_vst3.py"
+      - ".github/workflows/skellnative-direct-vst3.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - "tools/check_skellnative_vst3.py"
+      - "tests/test_native_direct_vst3.py"
+      - ".github/workflows/skellnative-direct-vst3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+jobs:
+  native-vst3:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify independent SkellNative C++ DSP first
+        shell: pwsh
+        run: |
+          cmake -S native -B native/build -DSKELLNATIVE_BUILD_TESTS=ON
+          cmake --build native/build --config Release --parallel 2
+          ctest --test-dir native/build -C Release --output-on-failure
+      - name: Configure pinned Steinberg VST3 SDK (JUCE disabled)
+        shell: pwsh
+        run: cmake -S native/vst3 -B native/vst3/build -A x64
+      - name: Compile JUCE-free Windows VST3 gain prototype
+        shell: pwsh
+        run: cmake --build native/vst3/build --target SkellNativeGain --config Release --parallel 2
+      - name: Verify actual PE32+ x64 VST3 binary
+        shell: pwsh
+        run: python -m tools.check_skellnative_vst3 native/vst3/build
+      - name: Publish inspection-only VST3 test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellNative-Experimental-Windows-VST3
+          path: native/vst3/build/**/SkellNativeGain.vst3/**/*
+          if-no-files-found: error
+          retention-days: 7
