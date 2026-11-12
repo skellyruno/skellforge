@@ -161,3 +161,68 @@ def read_history(project: Path, limit: int = 50) -> list[dict]:
         except ValueError:
             continue
     return records
+
+
+def install_verified_vst3(project: Path, scan_folder: Path) -> dict:
+    """Explicit opt-in installation in a user-selected VST3 scan folder.
+
+    Keeps a permanent backup in <project>/.skellforge/backups; stages the new
+    bundle on the destination volume; restores the old bundle after a failed
+    rename. This is deliberately never called by build_and_export().
+    """
+    if sys.platform != "win32":
+        raise ForgeError("VST3 installation is supported only on Windows")
+    project = project.expanduser().resolve()
+    scan_folder = scan_folder.expanduser().resolve()
+    if not scan_folder.is_dir() or scan_folder.is_symlink():
+        raise ForgeError("Select an existing, non-symlink VST3 scan folder")
+    bundle, _ = find_verified_vst3(project)
+    destination = scan_folder / bundle.name
+    if destination.is_symlink() or (destination.exists() and not destination.is_dir()):
+        raise ForgeError("Destination conflicts with an existing file or symlink")
+    if destination.exists() and any(entry.is_symlink() for entry in destination.rglob("*")):
+        raise ForgeError("Cannot overwrite a plugin containing symbolic links")
+    # The new bundle is copied to the install volume BEFORE touching the old
+    # bundle. Installation into Program Files may require elevation.
+    import uuid
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
+    nonce = uuid.uuid4().hex[:12]
+    staging = scan_folder / f".skellforge-stage-{nonce}"
+    quarantine = scan_folder / f".skellforge-old-{nonce}"
+    backup = None
+    previous_moved = False
+    new_installed = False
+    try:
+        shutil.copytree(bundle, staging, symlinks=False)
+        copied = sorted(p for p in staging.rglob("*.vst3") if p.is_file())
+        if len(copied) != 1:
+            raise ForgeError("Staged VST3 does not have exactly one binary")
+        check_pe_x64(copied[0])
+        if destination.exists():
+            backup = project / ".skellforge" / "backups" / stamp / bundle.name
+            backup.parent.mkdir(parents=True, exist_ok=False)
+            shutil.copytree(destination, backup, symlinks=False)
+            destination.rename(quarantine)
+            previous_moved = True
+        staging.rename(destination)
+        new_installed = True
+        if previous_moved:
+            shutil.rmtree(quarantine)
+        return {
+            "installed": str(destination),
+            "backup": str(backup) if backup else None,
+            "scan_folder": str(scan_folder),
+        }
+    except Exception as exc:
+        if previous_moved and not new_installed:
+            try:
+                if not destination.exists():
+                    quarantine.rename(destination)
+            except OSError as restore_error:
+                raise ForgeError(
+                    f"Installation failed and prior bundle needs manual restore from {quarantine}: "
+                    f"{restore_error}") from exc
+        raise
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
