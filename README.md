@@ -64,6 +64,25 @@ python -m skellforge build-local ../skell-pulse --parallel 2 --juce-path C:/JUCE
 Older `build` and `package` CLI commands are retained, and generated projects
 still include optional GitHub CI. **Local build is the primary workflow.**
 
+## SkellLang and the SkellNative SDK - experimental
+
+You can now describe a small plugin in SkellLang and generate the same
+validated Windows VST3 project that the visual editor uses. Example:
+
+    python -m skellforge lang-check examples/SkellWarmth.skell
+    python -m skellforge lang-export examples/SkellWarmth.skell new-scene.json
+    python -m skellforge lang-new examples/SkellWarmth.skell "Skell Warmth" ../skell-warmth --code SZ91
+    python -m skellforge build-local ../skell-warmth
+
+The language is declarative and does not execute arbitrary code, run inside the
+audio callback, or replace C++ compilation. Project creation never overwrites
+an existing path. See [SkellLang v0.1](docs/SKELLLANG.md).
+
+The separate JUCE-free [SkellNative source SDK](docs/NATIVE_SDK.md) now defines
+plugin metadata, normalized parameter events, audio blocks and processing
+lifecycle. It is **not yet** a compatible direct-VST3 backend, nor a stable
+binary ABI. See the [master engineering plan](docs/MASTER_PLAN.md).
+
 ## What's in Studio v0.4 (experimental)
 
 | Milestone | Current capability | Limit |
