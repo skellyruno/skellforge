@@ -21,6 +21,7 @@
     addAndMakeVisible(title_);
     addAndMakeVisible(gainLabel_);
     addAndMakeVisible(gainKnob_);
+    extraControls_.setup(*this, processor.parameters); // GUI thread only.
     setSize(440, 310);
 }
 
@@ -57,4 +58,5 @@ void @@TARGET@@AudioProcessorEditor::paint(juce::Graphics& g) {
 
 void @@TARGET@@AudioProcessorEditor::resized() {
     forgeui::layout(skull_, title_, gainLabel_, gainKnob_, getWidth(), getHeight());
+    extraControls_.layout(getWidth(), getHeight());
 }

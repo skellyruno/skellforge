@@ -1,12 +1,15 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "ForgeParameters.h"
 #include <cmath>
 
 @@TARGET@@AudioProcessor::@@TARGET@@AudioProcessor()
     : juce::AudioProcessor(BusesProperties()
           .withInput("Input", juce::AudioChannelSet::stereo(), true)
           .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
-      parameters(*this, nullptr, "PARAMETERS", createLayout()) {}
+      parameters(*this, nullptr, "PARAMETERS", createLayout()) {
+    graph_.bind(parameters); // Editor and host state own automation; cache pointers once.
+}
 
 juce::AudioProcessorValueTreeState::ParameterLayout
 @@TARGET@@AudioProcessor::createLayout() {
@@ -14,6 +17,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout
     layout.add(std::make_unique<juce::AudioParameterFloat>(
         juce::ParameterID{"gain_db", 1}, "Gain",
         juce::NormalisableRange<float>(-24.0f, 24.0f, 1.0f), 0.0f));
+    forgeparams::append(layout); // Stable IDs for live and retired DSP nodes.
     return layout;
 }
 
