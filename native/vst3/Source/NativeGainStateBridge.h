@@ -44,7 +44,7 @@ inline bool writeNormalizedGain(Steinberg::IBStream* stream, float value) {
         return false;
     skellnative::sdk::StateSnapshot state;
     state.parameters.push_back({kParamId, value});
-    const auto encoded = skellnative::sdk::encodeState(kProductId, state);
+    auto encoded = skellnative::sdk::encodeState(kProductId, state);
     if (!encoded) return false;
     Steinberg::int32 written = 0;
     const auto result = stream->write(encoded->data(),
