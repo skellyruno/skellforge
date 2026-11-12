@@ -99,6 +99,10 @@ def unified_specs(data: dict) -> list[dict]:
             existing[spec["id"]] = spec
         elif (old["kind"], old["node"], old["field"]) != (spec["kind"], spec["node"], spec["field"]):
             raise ParameterError(f"Cannot reuse previously reserved parameter {spec['id']}")
+        elif old["default"] != spec["default"]:
+            raise ParameterError(
+                f"Parameter default is locked after first save: {spec['id']}. "
+                "Change the knob in the DAW instead.")
     return specs
 
 
@@ -121,11 +125,12 @@ def sync_registry(data: dict, previous: dict | None = None) -> None:
         elif (prior["node"], prior["kind"], prior["field"]) != (
                 item["node"], item["kind"], item["field"]):
             raise ParameterError("Reserved parameter ID collision")
-    # Prevent silent reuse of a removed node's saved automation.
-    live_nodes = {n["id"]: n["type"] for n in data["chain"]}
-    old_nodes = {s["node"] for s in combined if s["node"] not in live_nodes}
+    # A saved ID belongs to its historical node even after deletion.
+    # Do not permit reviving it as a new node with an unrelated meaning.
+    former_live = {node["id"] for node in old["chain"]}
+    former_reserved = {entry["node"] for entry in unified_specs(old)}
     for node in data["chain"][1:]:
-        if node["id"] in old_nodes:
+        if node["id"] in former_reserved and node["id"] not in former_live:
             raise ParameterError(f"Reusing retired DSP node ID is forbidden: {node['id']}")
     data["parameter_registry"] = combined
 
