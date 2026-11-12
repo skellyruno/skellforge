@@ -204,7 +204,7 @@ class StudioApp:
         self.status.config(text=text, fg=RED if error else MUTED)
 
     def _new_project(self):
-        if self.busy:
+        if self.busy or (self.document is not None and not self._confirm_unsaved()):
             return
         window = tk.Toplevel(self.root)
         window.title("New SkellForge plugin")
@@ -583,6 +583,8 @@ class StudioApp:
                     self._write_log("INSTALLED: " + payload["installed"])
                     if payload["backup"]:
                         self._write_log("BACKUP: " + payload["backup"])
+                    if payload.get("cleanup_warning"):
+                        self._write_log("WARNING: " + payload["cleanup_warning"])
                 else:
                     self._notify("Local build failed - see log.", error=True)
                     self._write_log("ERROR: " + payload)

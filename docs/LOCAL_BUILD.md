@@ -36,8 +36,11 @@ GitHub Actions build or a GitHub push.
 
 ## Testing in FL Studio
 
-Export ZIP is not installation. Unzip the VST3 bundle into a folder on
-FL Studio's plugin search path. Run FL Studio's plugin scan, then check:
+Export ZIP is not installation. Use **INSTALL INTO VST3 FOLDER** only after
+closing FL Studio; explicitly select a folder already in FL Studio's plugin
+scan paths. Existing same-name bundles get backed up under the project's
+local .skellforge/backups directory. Or unzip the ZIP manually into a known
+VST3 scan path. Run FL Studio's plugin scan, then check:
 mono/stereo, 44.1/48/96 kHz, plugin load/removal, editor reopen, parameter
 automation and undo, preset save/project reopen, multiple instances,
 dry pass-through at 0 dB, CPU and latency, and rapid bypass toggling.
@@ -51,6 +54,8 @@ Don't assume a passing PE check means plugin host compatibility.
 - The Studio UI preview is schematic, not actual JUCE graphics.
 - Optional DSP blocks use static settings, not automated host parameters.
 - The DSP editor uses a serial chain with fixed input->gain->...->output flow.
-- A graphical install/rollback workflow is a separate tracked milestone.
+- The optional graphical installer uses a staged local copy and backups.
+  Automatic rollback is attempted if a rename fails; retained backups allow
+  manual restoration if the filesystem prevents it.
 - Build history stays inside the project and is ignored by Git.
 - Launching the graphical editor requires a desktop session with Tkinter.

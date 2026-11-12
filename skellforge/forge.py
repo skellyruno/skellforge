@@ -188,6 +188,10 @@ def validate_project(project: Path) -> dict:
     if world.get("plugin_code") != info["code"] or world.get("bundle_id") != info["bundle"] \
             or world.get("product_id") != info["world_id"]:
         raise ForgeError("SkellWorld manifest identity disagrees with SkellForge")
+    if (project / "forge-studio.json").is_file():
+        load_studio(project)
+    elif '"ForgeGraph.h"' in (project / "Source" / "PluginProcessor.h").read_text(encoding="utf-8"):
+        raise ForgeError("Forge Studio document missing; generated project cannot compile safely")
     return data
 
 

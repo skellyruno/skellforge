@@ -31,6 +31,9 @@ x64 PE32+ binary and exports a uniquely named ZIP under the generated project's
 `dist/` folder. It records duration, outcome, failures and paths in local
 `.skellforge/history.jsonl`. The build thread does not freeze the desktop UI.
 No VST3 is silently installed into FL Studio, and no GitHub push is required.
+After a verified build, **INSTALL INTO VST3 FOLDER** is an explicit opt-in action:
+choose a folder already in FL Studio's scan paths, confirm, and Forge backs up
+any existing same-name VST3 before replacing it. Close FL Studio first.
 
 **Important:** On the first configure, CMake may download pinned JUCE and
 SkellCore sources unless they have been cached. Supply local JUCE/SkellCore
@@ -62,7 +65,7 @@ still include optional GitHub CI. **Local build is the primary workflow.**
 | Component library | SkellCore StudioUI controls, positioned title/skull/gain knob/label, additional visual text labels | Buttons, meters and additional parameter-mapped knobs are future integrations |
 | Visual UI editor | Drag controls on an approximate Tk preview, adjust bounds and text, save JSON, generate C++ JUCE layout | Preview is not native JUCE pixel-perfect rendering |
 | DSP graph | Serial, reorderable bypassable saturation/one-pole lowpass after automatable gain, compile-time graph C++ generation | No parallel routing or realtime automation of optional nodes yet |
-| Local build/export | Desktop one-click CMake x64 Release, verify PE, package unique ZIP, history | Build tooling must be installed on user's Windows machine |
+| Local build/export | Desktop one-click CMake x64 Release, verify PE, package unique ZIP, history and confirmed VST3 installation with backup | Build tooling must be installed on user's Windows machine |
 
 ## Stability principles
 

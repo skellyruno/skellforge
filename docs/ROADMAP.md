@@ -28,8 +28,8 @@ JUCE, a modular DAW, or a full visual VST builder.
   preset browser, parameter stability and automation.
 - Accurate routable DSP graph with typed ports, bypass, host latency contracts,
   graph cycle detection and serialized parameters.
-- Local opt-in VST3 installation into explicit FL Studio scan path with backups
-  and rollback.
+- Harden and validate the v0.2 opt-in VST3 installer: FL Studio live-file
+  locks, explicit scan-folder selection, manual rollback from retained backups.
 - Stable GUI installer EXE with versioned updates; device-level test on low-spec
   Ryzen/Radeon Windows machine.
 - Pin and document official master skull geometry when user approves it.
