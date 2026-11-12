@@ -147,8 +147,8 @@ def create_project(name: str, destination: Path, code: str,
         }
         for filename, content in (("skellforge.json", manifest), ("skellworld.json", world)):
             (destination / filename).write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
-        validate_project(destination)
         init_studio(destination)
+        validate_project(destination)
     except BaseException:
         shutil.rmtree(destination)
         raise
