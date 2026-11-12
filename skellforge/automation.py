@@ -125,6 +125,9 @@ def sync_registry(data: dict, previous: dict | None = None) -> None:
         elif (prior["node"], prior["kind"], prior["field"]) != (
                 item["node"], item["kind"], item["field"]):
             raise ParameterError("Reserved parameter ID collision")
+        elif prior["default"] != item["default"]:
+            raise ParameterError(
+                f"Parameter default is locked after first save: {item['id']}")
     # A saved ID belongs to its historical node even after deletion.
     # Do not permit reviving it as a new node with an unrelated meaning.
     former_live = {node["id"] for node in old["chain"]}
