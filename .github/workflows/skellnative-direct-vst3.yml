@@ -18,6 +18,11 @@ on:
 
 permissions:
   contents: read
+
+# Avoid wasting Windows compile minutes on superseded SDK prototypes.
+concurrency:
+  group: skellnative-direct-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   native-vst3:
     runs-on: windows-latest
