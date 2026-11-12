@@ -10,7 +10,8 @@ from skellforge.studio import (
     StudioError, default_studio, init_studio, load_studio, regenerate,
     render_ui, render_graph, save_studio, validate_studio,
 )
-from skellforge.local import check_pe_x64, read_history
+from skellforge.local import check_pe_x64, read_history, install_verified_vst3
+from unittest.mock import patch
 
 
 class StudioModelTests(unittest.TestCase):
@@ -137,6 +138,45 @@ class NativeVST3VerificationTests(unittest.TestCase):
 
     def test_empty_build_history(self):
         self.assertEqual(read_history(self.root), [])
+
+    def test_opt_in_install_with_backup_and_rollback_copy(self):
+        project = self.root / "project"
+        create_project("Skell Pulse", project, "SF94")
+        bundle = project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3"
+        built = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
+        built.parent.mkdir(parents=True)
+        self._fake_pe(built)
+        folder = self.root / "my-vst3"
+        folder.mkdir()
+        previous = folder / bundle.name
+        previous.mkdir()
+        (previous / "old.txt").write_text("previous version")
+        with patch("skellforge.local.sys.platform", "win32"):
+            result = install_verified_vst3(project, folder)
+        self.assertEqual(result["installed"], str(previous))
+        self.assertTrue((previous / "Contents" / "x86_64-win" / "Skell Pulse.vst3").is_file())
+        self.assertFalse((previous / "old.txt").exists())
+        backup = Path(result["backup"])
+        self.assertEqual((backup / "old.txt").read_text(), "previous version")
+        self.assertFalse(any(folder.glob(".skellforge-stage-*")))
+        self.assertFalse(any(folder.glob(".skellforge-old-*")))
+
+    def test_invalid_bundle_cannot_touch_existing_install(self):
+        project = self.root / "project"
+        create_project("Skell Pulse", project, "SF94")
+        bundle = project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3"
+        built = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
+        built.parent.mkdir(parents=True)
+        built.write_bytes(b"not a real binary")
+        folder = self.root / "scan"
+        folder.mkdir()
+        current = folder / "Skell Pulse.vst3"
+        current.mkdir()
+        (current / "old.txt").write_text("safe")
+        with patch("skellforge.local.sys.platform", "win32"):
+            with self.assertRaisesRegex(Exception, "Not a Windows PE"):
+                install_verified_vst3(project, folder)
+        self.assertEqual((current / "old.txt").read_text(), "safe")
 
 
 if __name__ == "__main__":
