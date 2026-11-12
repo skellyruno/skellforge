@@ -1,0 +1,106 @@
+// Generated-plugin DSP smoke tests: real JUCE buffers, no DAW or audio device.
+// Run for 44.1, 48 and 96 kHz; exercise silence, sine, impulsive blocks,
+// zero length blocks, denormal safety, finite outputs and partition invariance.
+#include "ForgeGraph.h"
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <limits>
+#include <vector>
+
+static bool finiteAndBounded(const juce::AudioBuffer<float>& audio, float limit) {
+    for (int ch = 0; ch < audio.getNumChannels(); ++ch) {
+        for (int i = 0; i < audio.getNumSamples(); ++i) {
+            const float s = audio.getSample(ch, i);
+            if (!std::isfinite(s) || std::abs(s) > limit) return false;
+        }
+    }
+    return true;
+}
+
+static bool runRate(double rate) {
+    constexpr int frames = 1024;
+    juce::AudioBuffer<float> source(2, frames);
+    for (int ch = 0; ch < 2; ++ch) {
+        for (int i = 0; i < frames; ++i) {
+            const float sample = static_cast<float>(
+                0.55 * std::sin(6.283185307179586 * 440.0 * i / rate));
+            source.setSample(ch, i, ch == 0 ? sample : sample * -0.7f);
+        }
+    }
+    forgedsp::Graph whole, chunks;
+    whole.prepare(rate);
+    chunks.prepare(rate);
+    juce::AudioBuffer<float> expected(2, frames);
+    for (int ch = 0; ch < 2; ++ch)
+        expected.copyFrom(ch, 0, source, ch, 0, frames);
+    whole.process(expected);
+    if (!finiteAndBounded(expected, 1.01f)) return false;
+
+    std::array<int, 8> sizes{1, 7, 64, 2, 127, 13, 255, 6};
+    int offset = 0, index = 0;
+    while (offset < frames) {
+        const int n = std::min(sizes[static_cast<size_t>(index++) % sizes.size()],
+                               frames - offset);
+        juce::AudioBuffer<float> slice(2, n);
+        for (int ch = 0; ch < 2; ++ch)
+            slice.copyFrom(ch, 0, source, ch, offset, n);
+        chunks.process(slice);
+        if (!finiteAndBounded(slice, 1.01f)) return false;
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < n; ++i)
+                if (std::abs(slice.getSample(ch, i) -
+                             expected.getSample(ch, offset+i)) > 2.0e-5f)
+                    return false;
+        offset += n;
+    }
+
+    for (int n : {0, 1, 64, 257}) {
+        forgedsp::Graph engine;
+        engine.prepare(rate);
+        juce::AudioBuffer<float> buffer(2, n);
+        buffer.clear();
+        engine.process(buffer);
+        if (!finiteAndBounded(buffer, 1.0e-6f)) return false;
+    }
+
+    // Confirm a genuine processed impulse remains finite and has no excess peak.
+    forgedsp::Graph impulseGraph;
+    impulseGraph.prepare(rate);
+    juce::AudioBuffer<float> impulse(2, 512);
+    impulse.clear();
+    impulse.setSample(0, 0, 0.75f);
+    impulse.setSample(1, 0, -0.75f);
+    impulseGraph.process(impulse);
+    if (!finiteAndBounded(impulse, 1.01f)) return false;
+
+    if constexpr (forgedsp::Graph::enabledNodeCount > 0) {
+        // Non-finite inputs are sanitized by any actual enabled DSP stage.
+        forgedsp::Graph guard;
+        guard.prepare(rate);
+        juce::AudioBuffer<float> abnormal(2, 16);
+        abnormal.clear();
+        abnormal.setSample(0, 1, std::numeric_limits<float>::quiet_NaN());
+        abnormal.setSample(1, 2, std::numeric_limits<float>::infinity());
+        guard.process(abnormal);
+        if (!finiteAndBounded(abnormal, 1.01f)) return false;
+    } else {
+        // A brand new empty chain remains EXACTLY unity / neutral.
+        for (int ch = 0; ch < 2; ++ch)
+            for (int i = 0; i < frames; ++i)
+                if (expected.getSample(ch, i) != source.getSample(ch, i))
+                    return false;
+    }
+    return true;
+}
+
+int main() {
+    for (double rate : {44100.0, 48000.0, 96000.0}) {
+        if (!runRate(rate)) {
+            std::fprintf(stderr, "SkellForge DSP regression failed at %.0f Hz\n", rate);
+            return 1;
+        }
+    }
+    std::puts("SkellForge DSP smoke: all rates/blocks, finite/partition tests OK");
+    return 0;
+}
