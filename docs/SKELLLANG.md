@@ -27,10 +27,13 @@ Usage on Windows:
     python -m skellforge lang-check examples/SkellWarmth.skell
     python -m skellforge lang-export examples/SkellWarmth.skell scene.json
     python -m skellforge lang-new examples/SkellWarmth.skell "Skell Warmth" ../skell-warmth --code SZ91
+    python -m skellforge lang-from-studio ../skell-warmth skell-warmth.skell
     python -m skellforge build-local ../skell-warmth
 
 The compiler has no loops, eval, code imports, runtime execution or file I/O from the source language. Source size and line count are bounded; all resulting DSP, layout and parameter IDs are validated by Studio.
 
-The export and new-project commands NEVER overwrite existing paths. Lang-new compiles and validates before creating a project, uses the original unique-code safeguards and emits the existing generated JUCE source. SkellLang currently has no source round-trip editor or generic scripting functions.
+The export and new-project commands NEVER overwrite existing paths. Lang-new compiles and validates before creating a project, uses the original unique-code safeguards and emits the existing generated JUCE source. SkellLang now supports deterministic Studio-to-source conversion and source-to-Studio compilation for supported fields. The exporter checks exact round-trip equivalence, preserves live and retired parameter IDs via reserve statements, and fails closed if an unsupported future Studio field would be lost. A graphical live source editor and generic scripting functions do not yet exist.
 
-Future milestones: typed parameters and units; versioned preset/state schemas; source-to-visual round trips; typed DSP graph with latency; safe compile-time DSP functions; eventually a native backend. Do not interpret user language statements on the audio thread.
+Future milestones: typed parameters and units; versioned preset/state schemas; integrated visual/text editing and diffs; typed DSP graph with latency; safe compile-time DSP functions; eventually a native backend. Do not interpret user language statements on the audio thread.
+
+**Naming:** [Skellenese and SkellCipher](BRAND_LANGUAGES.md) are fan-facing culture and artistic secret-writing, not alternate compiler names. The .skell extension and skell 1 syntax remain stable.
