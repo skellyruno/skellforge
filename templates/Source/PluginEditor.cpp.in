@@ -5,9 +5,8 @@
 
 @@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
     @@TARGET@@AudioProcessor& processor)
-    : juce::AudioProcessorEditor(&processor),
-      gainAttachment_(processor.parameters, "gain_db", gainKnob_) {
-    std::fprintf(stderr,"FORGE_EDITOR_DIAG: initializer list completed\n");std::fflush(stderr);
+    : juce::AudioProcessorEditor(&processor) {
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: base and members constructed\n");std::fflush(stderr);
     setLookAndFeel(&skin_);
     std::fprintf(stderr,"FORGE_EDITOR_DIAG: LookAndFeel set\n");std::fflush(stderr);
     setResizable(true, true);
@@ -19,6 +18,11 @@
     gainLabel_.setJustificationType(juce::Justification::centred);
     std::fprintf(stderr,"FORGE_EDITOR_DIAG: before gain knob config\n");std::fflush(stderr);
     skellcore::ui::configureStudioKnob(gainKnob_, 0.0);
+    // Bind after the knob is configured. Avoid APVTS callbacks while editor
+    // member fields (SkellCore theme/controls) are still being constructed.
+    gainAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.parameters, "gain_db", gainKnob_);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: gain attachment ready\n");std::fflush(stderr);
     std::fprintf(stderr,"FORGE_EDITOR_DIAG: gain knob configured\n");std::fflush(stderr);
     gainKnob_.setTextValueSuffix(" dB");
     skull_.onClick = [this] { changeSkin(); };
