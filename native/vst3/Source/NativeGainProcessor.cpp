@@ -61,15 +61,23 @@ public:
         int32 nextPoint = 0;
         int32 nextOffset = 0;
         ParamValue nextValue = 0.0;
+        bool cachedPoint = false;
+        // Cache the next host event instead of calling the virtual queue API
+        // once per audio sample. Work is proportional to event count.
         const auto applyAutomation = [&](int32 frame) noexcept {
             while (gainQueue && nextPoint < points) {
-                if (gainQueue->getPoint(nextPoint, nextOffset, nextValue) != kResultTrue) {
-                    ++nextPoint;
-                    continue;
+                if (!cachedPoint) {
+                    if (gainQueue->getPoint(nextPoint, nextOffset, nextValue)
+                        != kResultTrue) {
+                        ++nextPoint;
+                        continue;
+                    }
+                    cachedPoint = true;
                 }
                 if (nextOffset > frame) break;
                 if (nextOffset >= 0 && std::isfinite(nextValue))
                     normalized_ = std::clamp(static_cast<float>(nextValue), 0.0f, 1.0f);
+                cachedPoint = false;
                 ++nextPoint;
             }
         };
