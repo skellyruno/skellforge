@@ -23,6 +23,10 @@ data["components"].append({
     "x": 288, "y": 144, "w": 106, "h": 112,
 })
 data["components"].append({
+    "id": "out_meter", "type": "meter", "text": "OUT",
+    "x": 28, "y": 230, "w": 132, "h": 24,
+})
+data["components"].append({
     "id": "smoke_label", "type": "text",
     "text": "SKELL / DSP CHECK",
     "x": 20, "y": 264, "w": 210, "h": 24,

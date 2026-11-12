@@ -63,3 +63,25 @@ if(SKELLFORGE_BUILD_DSP_TESTS)
     juce::juce_audio_processors juce::juce_audio_basics juce::juce_core)
   add_test(NAME SkellForgeDspSmoke COMMAND SkellForgeDspSmoke)
 endif()
+
+# Optional real-editor preview. Uses the SAME processor/editor sources as the
+# generated VST3. Explicit target: excluded from ordinary plugin builds.
+option(SKELLFORGE_BUILD_UI_PREVIEW "Build actual JUCE editor screenshot tool" OFF)
+if(SKELLFORGE_BUILD_UI_PREVIEW)
+  juce_add_console_app(SkellForgeUiPreview PRODUCT_NAME "SkellForgeUiPreview")
+  juce_generate_juce_header(SkellForgeUiPreview)
+  target_sources(SkellForgeUiPreview PRIVATE
+    tests/ForgeUIRender.cpp
+    Source/PluginProcessor.h Source/PluginProcessor.cpp
+    Source/PluginEditor.h Source/PluginEditor.cpp
+    Source/ForgeGraph.h Source/ForgeUI.h Source/ForgeParameters.h)
+  target_compile_features(SkellForgeUiPreview PRIVATE cxx_std_17)
+  target_compile_definitions(SkellForgeUiPreview PRIVATE
+    SKELLFORGE_HEADLESS_PREVIEW=1
+    JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+  target_link_libraries(SkellForgeUiPreview PRIVATE
+    SkellCore::DSP SkellCore::UI SkellCore::UIRenderer
+    juce::juce_audio_utils juce::juce_audio_processors juce::juce_gui_extra)
+  # Built only when explicitly requested; avoids slowing normal local builds.
+  set_target_properties(SkellForgeUiPreview PROPERTIES EXCLUDE_FROM_ALL TRUE)
+endif()

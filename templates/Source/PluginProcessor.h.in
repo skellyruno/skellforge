@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include <atomic>
 #include "ForgeGraph.h"
 
 class @@TARGET@@AudioProcessor final : public juce::AudioProcessor {
@@ -25,8 +26,11 @@ public:
     void setStateInformation(const void*, int) override;
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     juce::AudioProcessorValueTreeState parameters;
+    // Lock-free, instance-local output meter source; consumed on the GUI thread.
+    const std::atomic<float>& outputPeak() const noexcept { return outputPeak_; }
 private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gain_{1.0f};
     forgedsp::Graph graph_;
+    std::atomic<float> outputPeak_{0.0f};
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(@@TARGET@@AudioProcessor)
 };

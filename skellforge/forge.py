@@ -283,6 +283,10 @@ def parser() -> argparse.ArgumentParser:
     local.add_argument("--juce-path", type=Path)
     local.add_argument("--core-path", type=Path)
     local.add_argument("--parallel", type=int, default=2)
+    preview = sub.add_parser("preview", help="Compile the actual JUCE editor and capture 3 real PNGs")
+    preview.add_argument("project", type=Path)
+    preview.add_argument("--juce-path", type=Path)
+    preview.add_argument("--core-path", type=Path)
     edit = sub.add_parser("studio", help="Launch local desktop visual studio")
     export = sub.add_parser("regenerate", help="Validate saved Studio UI/DSP and generate C++ headers")
     export.add_argument("project", type=Path)
@@ -329,6 +333,11 @@ def main(argv: list[str] | None = None) -> int:
             print("Exported: " + output["archive"])
         elif args.action == "regenerate":
             print("Regenerated: " + (", ".join(regenerate(args.project)) or "already current"))
+        elif args.action == "preview":
+            from .preview import render_real_preview
+            result = render_real_preview(args.project, juce_path=args.juce_path,
+                                         core_path=args.core_path, log=print)
+            print("Real JUCE screenshots: " + result["preview_folder"])
         elif args.action == "studio":
             from .studio_app import main as studio_main
             studio_main()

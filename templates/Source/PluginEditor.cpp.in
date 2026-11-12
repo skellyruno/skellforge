@@ -1,28 +1,46 @@
 #include "PluginEditor.h"
+#include <cstdio>
 #include <SkellCore/SkullTheme.h>
 #include "ForgeUI.h"
 
 @@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
     @@TARGET@@AudioProcessor& processor)
-    : juce::AudioProcessorEditor(&processor),
-      gainAttachment_(processor.parameters, "gain_db", gainKnob_) {
+    : juce::AudioProcessorEditor(&processor) {
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: base and members constructed\n");std::fflush(stderr);
     setLookAndFeel(&skin_);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: LookAndFeel set\n");std::fflush(stderr);
+    // A standalone headless preview is not embedded in a DAW host window.
+    // Its Scene renderer sets sizes directly; keep the actual VST3 resizable.
+#if !defined(SKELLFORGE_HEADLESS_PREVIEW)
     setResizable(true, true);
     setResizeLimits(390, 260, 900, 600);
+#endif
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: resize setup completed\n");std::fflush(stderr);
     title_.setText("@@NAME@@", juce::dontSendNotification);
     title_.setFont(juce::Font(juce::FontOptions(21.0f).withStyle("Bold")));
     title_.setJustificationType(juce::Justification::centredLeft);
     gainLabel_.setText("GAIN", juce::dontSendNotification);
     gainLabel_.setJustificationType(juce::Justification::centred);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: before gain knob config\n");std::fflush(stderr);
     skellcore::ui::configureStudioKnob(gainKnob_, 0.0);
+    // Bind after the knob is configured. Avoid APVTS callbacks while editor
+    // member fields (SkellCore theme/controls) are still being constructed.
+    gainAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
+        processor.parameters, "gain_db", gainKnob_);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: gain attachment ready\n");std::fflush(stderr);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: gain knob configured\n");std::fflush(stderr);
     gainKnob_.setTextValueSuffix(" dB");
     skull_.onClick = [this] { changeSkin(); };
     addAndMakeVisible(skull_);
     addAndMakeVisible(title_);
     addAndMakeVisible(gainLabel_);
     addAndMakeVisible(gainKnob_);
-    extraControls_.setup(*this, processor.parameters); // GUI thread only.
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: before extra controls\n");std::fflush(stderr);
+    extraControls_.setup(*this, processor.parameters, &processor.outputPeak()); // GUI thread only.
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: after extra controls\n");std::fflush(stderr);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: before setSize\n");std::fflush(stderr);
     setSize(440, 310);
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: after setSize\n");std::fflush(stderr);
 }
 
 @@TARGET@@AudioProcessorEditor::~@@TARGET@@AudioProcessorEditor() {

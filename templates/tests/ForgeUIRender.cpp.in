@@ -1,0 +1,62 @@
+// Actual generated JUCE editor snapshots, not a Tk mockup.
+// Windows desktop GUI thread only; never called from processBlock().
+#include "../Source/PluginProcessor.h"
+#include "../Source/PluginEditor.h"
+#include <JuceHeader.h>
+#include <SkellCore/HeadlessUIRenderer.h>
+#include <cstdio>
+
+int main(int argc, char** argv) {
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: starting\n");
+    std::fflush(stderr);
+    juce::ScopedJuceInitialiser_GUI init;
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: GUI initialized\n");
+    std::fflush(stderr);
+    @@TARGET@@AudioProcessor processor;
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: processor constructed\n");
+    std::fflush(stderr);
+    processor.prepareToPlay(48000.0, 512);
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: processor prepared\n");
+    std::fflush(stderr);
+    @@TARGET@@AudioProcessorEditor editor(processor);
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: editor constructed\n");
+    std::fflush(stderr);
+
+    skellcore::ui::headless::Options options;
+    options.project = "@@NAME@@ - SkellForge real JUCE editor";
+    options.scenes = {
+        {"compact", 390, 260, 0},
+        {"default", 440, 310, 0},
+        {"large", 900, 600, 0}
+    };
+    options.inspect = [&editor]() {
+        juce::StringArray problems;
+        if (editor.getWidth() < 390 || editor.getHeight() < 260)
+            problems.add("Editor has invalid dimensions");
+        for (int i = 0; i < editor.getNumChildComponents(); ++i) {
+            const auto* child = editor.getChildComponent(i);
+            if (child->isVisible()
+                && !editor.getLocalBounds().contains(child->getBounds())) {
+                problems.add("Clipped direct UI control: " + child->getName());
+            }
+        }
+        return problems;
+    };
+    options.minimumColours = 12;
+    const juce::File output = argc > 1
+        ? juce::File::getCurrentWorkingDirectory().getChildFile(
+            juce::String::fromUTF8(argv[1]))
+        : juce::File::getCurrentWorkingDirectory().getChildFile("ui-preview");
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: before capture\n");
+    std::fflush(stderr);
+    const auto report = skellcore::ui::headless::render(editor, output, options);
+    std::fprintf(stderr, "FORGE_RENDER_DIAG: after capture\n");
+    std::fflush(stderr);
+    for (const auto& issue : report.errors)
+        std::fprintf(stderr, "UI preview: %s\n", issue.toRawUTF8());
+    std::printf("SkellForge captured %d of %zu real-editor scenes\n",
+                report.captured, options.scenes.size());
+    processor.releaseResources();
+    return report.passed() && report.captured == static_cast<int>(options.scenes.size())
+        ? 0 : 1;
+}

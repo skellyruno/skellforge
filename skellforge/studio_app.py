@@ -15,6 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from .forge import ForgeError, create_project, validate_project
 from .local import build_and_export, read_history, find_verified_vst3, install_verified_vst3
+from .preview import render_real_preview, SCENES
 from .studio import StudioError, load_studio, save_studio, regenerate, validate_studio
 from .automation import available_parameters, registry_specs
 
@@ -42,6 +43,7 @@ class StudioApp:
         self.busy = False
         self.events: queue.SimpleQueue = queue.SimpleQueue()
         self.latest_archive: Path | None = None
+        self.latest_preview: dict | None = None
         self._setup_styles()
         self._render_shell()
         self.root.after(120, self._poll)
@@ -123,7 +125,8 @@ class StudioApp:
         self.components_list.bind("<<ListboxSelect>>", self._on_list_select)
         self.button(left, "+ ADD TEXT", self._add_text).pack(fill="x", padx=8, pady=(12, 4))
         self.button(left, "+ ADD FX KNOB", self._add_effect_knob).pack(fill="x", padx=8, pady=4)
-        self.button(left, "REMOVE LABEL / KNOB", self._remove_text, color=RAISED, fg=WHITE).pack(fill="x", padx=8, pady=4)
+        self.button(left, "+ ADD OUTPUT METER", self._add_meter).pack(fill="x", padx=8, pady=4)
+        self.button(left, "REMOVE LABEL / KNOB / METER", self._remove_text, color=RAISED, fg=WHITE).pack(fill="x", padx=8, pady=4)
         self.label(left, "Drag to position. FX knobs\nconnect to host automation.\nSave before building.", color=MUTED, size=9,
                    justify="left").pack(anchor="w", padx=12, pady=12)
 
@@ -133,6 +136,11 @@ class StudioApp:
         self.canvas = tk.Canvas(center, bg="#101313", highlightthickness=1,
                                 highlightbackground=LINE, height=460)
         self.canvas.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+        self.preview_btn = self.button(center, "RENDER ACTUAL JUCE EDITOR", self._real_preview,
+                                       color=RAISED, fg=GREEN)
+        self.preview_btn.pack(fill="x", padx=8, pady=(0, 7))
+        self.label(center, "Builds an actual JUCE preview. The canvas above is an approximate editor.",
+                   color=MUTED, size=9).pack(anchor="w", padx=12, pady=(0, 6))
         self.canvas.bind("<Configure>", lambda _e: self._draw_canvas())
         self.canvas.bind("<Button-1>", self._canvas_down)
         self.canvas.bind("<B1-Motion>", self._canvas_move)
@@ -249,6 +257,7 @@ class StudioApp:
         data = validate_project(path)
         studio = load_studio(path)
         self.project, self.document = path.resolve(), copy.deepcopy(studio)
+        self.latest_preview = None
         self.selected = None
         self.project_status.config(text=f"{data['name']}  [{data['plugin_code']}]")
         self._refresh_lists()
@@ -327,7 +336,12 @@ class StudioApp:
             x2, y2 = ox+(c["x"]+c["w"])*s, oy+(c["y"]+c["h"])*s
             name, kind = c["id"], c["type"]
             selected = name == self.selected
-            if kind in ("gain_knob", "effect_knob"):
+            if kind == "meter":
+                cv.create_rectangle(x1, y1, x2, y2, fill="#172019", outline=LINE, tags=(name,))
+                cv.create_text(x1+6*s, (y1+y2)/2, anchor="w",
+                               text=c.get("text", "OUT"), fill=GREEN,
+                               font=("Segoe UI", max(8, int(9*s))), tags=(name,))
+            elif kind in ("gain_knob", "effect_knob"):
                 diam = min(x2-x1, y2-y1)*0.7
                 cx, cy = (x1+x2)/2, (y1+y2)/2
                 cv.create_oval(cx-diam/2,cy-diam/2,cx+diam/2,cy+diam/2,
@@ -393,7 +407,7 @@ class StudioApp:
         try:
             for key in ("x","y","w","h"):
                 item[key] = int(self.coord_inputs[key].get().strip())
-            if item["type"] in ("text", "effect_knob"):
+            if item["type"] in ("text", "effect_knob", "meter"):
                 item["text"] = self.coord_inputs["text"].get().strip()
             validate_studio(candidate)
             self.document = candidate
@@ -420,6 +434,27 @@ class StudioApp:
             self._select(identifier)
         except StudioError as exc:
             messagebox.showerror("Cannot add label", str(exc), parent=self.root)
+
+    def _add_meter(self):
+        if self.busy or not self.document:
+            return
+        candidate = copy.deepcopy(self.document)
+        ids = {item["id"] for item in candidate["components"]}
+        n = 1
+        while f"meter_{n}" in ids:
+            n += 1
+        name = f"meter_{n}"
+        candidate["components"].append({
+            "id": name, "type": "meter", "text": "OUT",
+            "x": 24, "y": 272, "w": 160, "h": 24,
+        })
+        try:
+            validate_studio(candidate)
+            self.document = candidate
+            self._refresh_lists()
+            self._select(name)
+        except StudioError as exc:
+            messagebox.showerror("Cannot add audio meter", str(exc), parent=self.root)
 
     def _add_effect_knob(self):
         if self.busy or not self.document:
@@ -473,7 +508,7 @@ class StudioApp:
             return
         candidate = copy.deepcopy(self.document)
         candidate["components"] = [c for c in candidate["components"]
-                                   if c["id"] != self.selected or c["type"] not in ("text", "effect_knob")]
+                                   if c["id"] != self.selected or c["type"] not in ("text", "effect_knob", "meter")]
         if len(candidate["components"]) == len(self.document["components"]):
             self._notify("Built-in controls cannot be deleted.", error=True)
             return
@@ -634,6 +669,7 @@ class StudioApp:
             return
         self.busy = True
         self.build_btn.config(state="disabled", text="BUILDING LOCALLY...")
+        self.preview_btn.config(state="disabled")
         project = self.project
         juce = Path(self.juce_input.get().strip()) if self.juce_input.get().strip() else None
         core = Path(self.core_input.get().strip()) if self.core_input.get().strip() else None
@@ -656,7 +692,13 @@ class StudioApp:
             else:
                 self.busy = False
                 self.build_btn.config(state="normal", text="BUILD + VERIFY + EXPORT VST3")
-                if kind == "done":
+                self.preview_btn.config(state="normal", text="RENDER ACTUAL JUCE EDITOR")
+                if kind == "preview":
+                    self.latest_preview = payload
+                    self._notify("Verified real JUCE screenshots at 3 sizes")
+                    self._write_log("PREVIEW VERIFIED: " + payload["preview_folder"])
+                    self._show_real_preview(payload)
+                elif kind == "done":
                     self.latest_archive = Path(payload["archive"])
                     self._notify(f"VST3 exported in {payload['duration_seconds']:.1f}s")
                     self._write_log("Build succeeded. Next: test in FL Studio (load, automate, save/reopen).")
@@ -671,6 +713,63 @@ class StudioApp:
                     self._notify("Local build failed - see log.", error=True)
                     self._write_log("ERROR: " + payload)
         self.root.after(120, self._poll)
+
+    def _real_preview(self):
+        if self.busy or not self.project or not self.document:
+            self._notify("Open a project before rendering the real editor.", error=True)
+            return
+        if not self._save():
+            return
+        self.busy = True
+        self.build_btn.config(state="disabled")
+        self.preview_btn.config(state="disabled", text="RENDERING JUCE...")
+        project = self.project
+        juce = Path(self.juce_input.get().strip()) if self.juce_input.get().strip() else None
+        core = Path(self.core_input.get().strip()) if self.core_input.get().strip() else None
+        self._write_log("=== REAL JUCE EDITOR PREVIEW ===")
+        def work():
+            try:
+                result = render_real_preview(project, juce_path=juce, core_path=core,
+                                             log=lambda line: self.events.put(("log", line)))
+                self.events.put(("preview", result))
+            except Exception as exc:
+                self.events.put(("error", "JUCE preview failed: " + str(exc)))
+        threading.Thread(target=work, daemon=True, name="SkellForge-real-juce-preview").start()
+
+    def _show_real_preview(self, report):
+        window = tk.Toplevel(self.root)
+        window.title("SkellForge — actual JUCE editor screenshots")
+        window.configure(bg=BG)
+        self.label(window, "REAL GENERATED JUCE EDITOR", color=GREEN, bold=True).pack(
+            anchor="w", padx=16, pady=(14, 5))
+        self.label(window, "Rendered by SkellCore, not the schematic Tk canvas",
+                   color=MUTED).pack(anchor="w", padx=16)
+        picker = ttk.Combobox(window, values=list(SCENES), state="readonly",
+                              style="Forge.TCombobox", width=24)
+        picker.set("default")
+        picker.pack(anchor="w", padx=16, pady=(8, 10))
+        picture = tk.Label(window, bg=BG)
+        picture.pack(padx=14, pady=(0, 12))
+        def show(_event=None):
+            chosen = picker.get()
+            if chosen not in report["scenes"]:
+                return
+            try:
+                screenshot = tk.PhotoImage(file=report["scenes"][chosen])
+                # Avoid overflowing smaller laptop screens. This scales for display only;
+                # full-resolution PNG files remain unchanged on disk.
+                screen_width = max(350, self.root.winfo_screenwidth() - 80)
+                screen_height = max(300, self.root.winfo_screenheight() - 240)
+                factor = max(1, (screenshot.width() + screen_width - 1)//screen_width,
+                             (screenshot.height() + screen_height - 1)//screen_height)
+                if factor > 1:
+                    screenshot = screenshot.subsample(factor, factor)
+                picture.config(image=screenshot)
+                picture.image = screenshot
+            except tk.TclError as exc:
+                messagebox.showerror("Cannot open JUCE screenshot", str(exc), parent=window)
+        picker.bind("<<ComboboxSelected>>", show)
+        show()
 
     def _install(self):
         if self.busy or not self.project:
@@ -693,6 +792,7 @@ class StudioApp:
             return
         self.busy = True
         self.build_btn.config(state="disabled", text="INSTALLING VST3...")
+        self.preview_btn.config(state="disabled")
         project = self.project
         def work():
             try:
