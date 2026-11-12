@@ -9,6 +9,7 @@ import json
 from .automation import (ParameterError, registry_specs, unified_specs, active_specs,
                          sync_registry, render_parameters,
                          render_graph as render_automated_graph)
+from .ui_codegen import render_ui as render_extended_ui
 import math
 import os
 import re
@@ -150,39 +151,7 @@ def _cpp_str(value: str) -> str:
 
 def render_ui(data: dict) -> str:
     validate_studio(data)
-    width, height = data["canvas"]["width"], data["canvas"]["height"]
-    items = {c["id"]: c for c in data["components"]}
-    pieces = [
-        HEADER, "#pragma once\n", "#include <JuceHeader.h>\n",
-        "namespace forgeui {\n",
-        f"inline constexpr int referenceWidth = {width};\n",
-        f"inline constexpr int referenceHeight = {height};\n",
-        "inline juce::Rectangle<int> scaled(int x, int y, int w, int h, int currentW, int currentH) {\n",
-        "    const float sx = static_cast<float>(currentW) / referenceWidth;\n",
-        "    const float sy = static_cast<float>(currentH) / referenceHeight;\n",
-        "    return {juce::roundToInt(x * sx), juce::roundToInt(y * sy),\n",
-        "            juce::roundToInt(w * sx), juce::roundToInt(h * sy)};\n}\n",
-        "inline void layout(juce::Component& skull, juce::Component& title,\n",
-        "                   juce::Component& gainLabel, juce::Component& gainKnob,\n",
-        "                   int width, int height) {\n",
-    ]
-    for cid, variable in zip(MAIN, ("skull", "title", "gainLabel", "gainKnob")):
-        pieces.append(f"    {variable}.setBounds(scaled({_rect(items[cid])}, width, height));\n")
-    pieces.extend([
-        "}\n",
-        "inline void drawLabels(juce::Graphics& g, int width, int height, juce::Colour colour) {\n",
-        "    g.setColour(colour);\n",
-        "    g.setFont(juce::Font(juce::FontOptions(13.0f)));\n",
-    ])
-    for c in data["components"]:
-        if c["type"] != "text":
-            continue
-        pieces.append(
-            f"    g.drawFittedText({_cpp_str(c['text'])}, "
-            f"scaled({_rect(c)}, width, height), juce::Justification::centred, 1);\n"
-        )
-    pieces.append("}\n} // namespace forgeui\n")
-    return "".join(pieces)
+    return render_extended_ui(data, HEADER)
 
 
 def _cpp_float(value: float) -> str:
