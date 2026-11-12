@@ -257,7 +257,13 @@ def format_source(scene: dict) -> str:
         else:
             lines.append(f"{comp['type']} {comp['id']} {caption} {rect}")
     output = "\n".join(lines).rstrip() + "\n"
-    if compile_source(output) != scene:
+    recovered = compile_source(output)
+    def canonical(document):
+        copy = dict(document)
+        if not copy.get("parameter_registry"):
+            copy.pop("parameter_registry", None)
+        return copy
+    if canonical(recovered) != canonical(scene):
         raise SkellLangError("Round-trip changed the Studio document; export refused")
     return output
 
