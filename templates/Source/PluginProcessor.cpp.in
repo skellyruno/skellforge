@@ -34,6 +34,7 @@ void @@TARGET@@AudioProcessor::prepareToPlay(double sampleRate, int) {
         ? juce::jlimit(1000.0, 192000.0, sampleRate) : 48000.0;
     gain_.reset(rate, 0.015);
     graph_.prepare(rate);
+    outputPeak_.store(0.0f, std::memory_order_relaxed);
     const auto* raw = parameters.getRawParameterValue("gain_db");
     const float value = raw ? raw->load() : 0.0f;
     const float db = std::isfinite(value) ? juce::jlimit(-24.0f, 24.0f, value) : 0.0f;
@@ -55,6 +56,12 @@ void @@TARGET@@AudioProcessor::processBlock(
     const float to = gain_.skip(frames);
     audio.applyGainRamp(0, frames, from, to);
     graph_.process(audio);
+    // Metering occurs once per block, no allocations or locks in the callback.
+    float peak = 0.0f;
+    for (int channel = 0; channel < juce::jmin(audio.getNumChannels(), 2); ++channel)
+        peak = juce::jmax(peak, audio.getMagnitude(channel, 0, frames));
+    outputPeak_.store(std::isfinite(peak) ? juce::jlimit(0.0f, 1.0f, peak) : 0.0f,
+                      std::memory_order_relaxed);
 }
 
 juce::AudioProcessorEditor* @@TARGET@@AudioProcessor::createEditor() {

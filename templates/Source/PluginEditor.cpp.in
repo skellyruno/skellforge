@@ -21,7 +21,7 @@
     addAndMakeVisible(title_);
     addAndMakeVisible(gainLabel_);
     addAndMakeVisible(gainKnob_);
-    extraControls_.setup(*this, processor.parameters); // GUI thread only.
+    extraControls_.setup(*this, processor.parameters, &processor.outputPeak()); // GUI thread only.
     setSize(440, 310);
 }
 
