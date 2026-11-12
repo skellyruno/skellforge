@@ -78,6 +78,11 @@ def validate_studio(data: dict) -> dict:
         h = _int(component.get("h"), f"{cid}.h", 12, height)
         if x + w > width or y + h > height:
             raise StudioError(f"Visual component {cid} is outside the canvas")
+        if kind == "effect_knob":
+            caption = component.get("text")
+            if (not isinstance(caption, str) or not 1 <= len(caption) <= 64
+                    or any(ord(c) < 32 for c in caption)):
+                raise StudioError("Effect knob captions must be 1–64 printable characters")
         if kind == "text":
             value = component.get("text")
             if not isinstance(value, str) or not 1 <= len(value) <= 64:
@@ -189,10 +194,19 @@ def regenerate(project: Path) -> list[str]:
     source = project / "Source"
     if not source.is_dir():
         raise StudioError("Missing generated Source directory")
+    outputs = (("ForgeUI.h", render_ui(data)),
+               ("ForgeGraph.h", render_graph(data)),
+               ("ForgeParameters.h", render_parameters(data, HEADER)))
+    # Check all three targets before touching even one file: if a user-owned
+    # header blocks generation, never leave a half-updated build tree.
+    for name, content in outputs:
+        path = source / name
+        if path.exists():
+            existing = path.read_text(encoding="utf-8")
+            if existing != content and not existing.startswith(HEADER):
+                raise StudioError(f"Refusing to replace user-owned header: {path}")
     changed = []
-    for name, content in (("ForgeUI.h", render_ui(data)),
-                          ("ForgeGraph.h", render_graph(data)),
-                          ("ForgeParameters.h", render_parameters(data, HEADER))):
+    for name, content in outputs:
         if _write_generated(source / name, content):
             changed.append(name)
     return changed
