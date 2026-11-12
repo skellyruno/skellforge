@@ -16,6 +16,7 @@ from tkinter import filedialog, messagebox, ttk
 from .forge import ForgeError, create_project, validate_project
 from .local import build_and_export, read_history, find_verified_vst3, install_verified_vst3
 from .studio import StudioError, load_studio, save_studio, regenerate, validate_studio
+from .automation import available_parameters, registry_specs
 
 BG = "#090b0b"
 PANEL = "#141818"
@@ -121,8 +122,9 @@ class StudioApp:
         self.components_list.pack(fill="x", padx=6)
         self.components_list.bind("<<ListboxSelect>>", self._on_list_select)
         self.button(left, "+ ADD TEXT", self._add_text).pack(fill="x", padx=8, pady=(12, 4))
-        self.button(left, "REMOVE TEXT", self._remove_text, color=RAISED, fg=WHITE).pack(fill="x", padx=8, pady=4)
-        self.label(left, "Move components by dragging\non the canvas. Labels are\nvisual-only until connected.", color=MUTED, size=9,
+        self.button(left, "+ ADD FX KNOB", self._add_effect_knob).pack(fill="x", padx=8, pady=4)
+        self.button(left, "REMOVE LABEL / KNOB", self._remove_text, color=RAISED, fg=WHITE).pack(fill="x", padx=8, pady=4)
+        self.label(left, "Drag to position. FX knobs\nconnect to host automation.\nSave before building.", color=MUTED, size=9,
                    justify="left").pack(anchor="w", padx=12, pady=12)
 
         center = tk.Frame(shell, bg=BG)
@@ -151,12 +153,12 @@ class StudioApp:
 
     def _dsp_tab(self):
         self.label(self.dsp_tab, "SERIAL DSP CHAIN  •  stages process from top to bottom", color=GREEN, bold=True).pack(anchor="w", padx=20, pady=(18, 8))
-        self.label(self.dsp_tab, "Only gain is host-automatable in this MVP. Other blocks use fixed settings compiled into the VST3.", color=MUTED, size=9).pack(anchor="w", padx=20)
+        self.label(self.dsp_tab, "Gain, drive, and cutoff are host-automatable. New DSP blocks start bypassed; save, then build locally.", color=MUTED, size=9).pack(anchor="w", padx=20)
         panel = tk.Frame(self.dsp_tab, bg=PANEL)
         panel.pack(fill="both", expand=True, padx=16, pady=14)
         self.dsp_list = tk.Listbox(panel, bg=PANEL, fg=WHITE, selectbackground="#34512c",
                                    selectforeground=WHITE, relief="flat", borderwidth=0,
-                                   font=("Consolas", 11), height=14, highlightthickness=0)
+                                   font=("Consolas", 11), height=14, highlightthickness=0, exportselection=False)
         self.dsp_list.pack(side="left", fill="both", expand=True, padx=16, pady=16)
         right = tk.Frame(panel, bg=PANEL)
         right.pack(side="right", fill="y", padx=16, pady=16)
@@ -325,14 +327,15 @@ class StudioApp:
             x2, y2 = ox+(c["x"]+c["w"])*s, oy+(c["y"]+c["h"])*s
             name, kind = c["id"], c["type"]
             selected = name == self.selected
-            if kind == "gain_knob":
+            if kind in ("gain_knob", "effect_knob"):
                 diam = min(x2-x1, y2-y1)*0.7
                 cx, cy = (x1+x2)/2, (y1+y2)/2
                 cv.create_oval(cx-diam/2,cy-diam/2,cx+diam/2,cy+diam/2,
                                fill="#202726", outline="#54704f", width=3, tags=(name,))
                 cv.create_line(cx,cy, cx-diam*.22,cy-diam*.22,fill=GREEN,width=3,tags=(name,))
-                cv.create_text(cx, y2-9*s, text="0 dB", fill=WHITE, font=("Consolas", 10),
-                               tags=(name,))
+                cv.create_text(cx, y2-9*s,
+                               text="0 dB" if kind == "gain_knob" else c.get("text", "FX"),
+                               fill=WHITE, font=("Consolas", 10), tags=(name,))
             elif kind == "skull":
                 cv.create_text((x1+x2)/2, (y1+y2)/2, text="SKELL", fill=GREEN,
                                font=("Segoe UI", 13, "bold"), tags=(name,))
@@ -366,7 +369,7 @@ class StudioApp:
             self.drag_origin = None
 
     def _canvas_move(self, event):
-        if not self.drag_origin or not self.document or not self.selected:
+        if self.busy or not self.drag_origin or not self.document or not self.selected:
             return
         ox, oy, scale = self._preview_geometry()
         ex, ey, initial_x, initial_y = self.drag_origin
@@ -382,7 +385,7 @@ class StudioApp:
             self._select(self.selected)
 
     def _apply_props(self):
-        if not self.document or not self.selected:
+        if self.busy or not self.document or not self.selected:
             return
         original = next(c for c in self.document["components"] if c["id"] == self.selected)
         candidate = copy.deepcopy(self.document)
@@ -390,7 +393,7 @@ class StudioApp:
         try:
             for key in ("x","y","w","h"):
                 item[key] = int(self.coord_inputs[key].get().strip())
-            if item["type"] == "text":
+            if item["type"] in ("text", "effect_knob"):
                 item["text"] = self.coord_inputs["text"].get().strip()
             validate_studio(candidate)
             self.document = candidate
@@ -400,7 +403,7 @@ class StudioApp:
             messagebox.showerror("Invalid layout", str(exc), parent=self.root)
 
     def _add_text(self):
-        if not self.document:
+        if self.busy or not self.document:
             return
         candidate = copy.deepcopy(self.document)
         ids = {c["id"] for c in candidate["components"]}
@@ -418,12 +421,59 @@ class StudioApp:
         except StudioError as exc:
             messagebox.showerror("Cannot add label", str(exc), parent=self.root)
 
+    def _add_effect_knob(self):
+        if self.busy or not self.document:
+            return
+        used = {c.get("parameter_id") for c in self.document["components"]
+                if c["type"] == "effect_knob"}
+        available = [spec for spec in available_parameters(self.document)
+                     if spec["id"] not in used]
+        if not available:
+            messagebox.showinfo("No available DSP parameter",
+                                "Add a saturation or lowpass DSP block first.",
+                                parent=self.root)
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Add automatable DSP knob")
+        dialog.configure(bg=PANEL)
+        self.label(dialog, "Select a host-automatable parameter", color=MUTED).pack(
+            anchor="w", padx=18, pady=(14, 6))
+        lookup = {f"{spec['node']}  /  {spec['field']}": spec for spec in available}
+        choice = ttk.Combobox(dialog, values=list(lookup), state="readonly",
+                              width=35, style="Forge.TCombobox")
+        choice.current(0)
+        choice.pack(padx=18, pady=4)
+        def create():
+            spec = lookup[choice.get()]
+            candidate = copy.deepcopy(self.document)
+            reserved = {c["id"] for c in candidate["components"]}
+            index = 1
+            while f"effect_knob_{index}" in reserved:
+                index += 1
+            id_ = f"effect_knob_{index}"
+            candidate["components"].append({
+                "id": id_, "type": "effect_knob",
+                "parameter_id": spec["id"], "text": spec["field"].replace("_", " ").upper(),
+                "x": 260, "y": 148, "w": 110, "h": 110,
+            })
+            try:
+                validate_studio(candidate)
+                self.document = candidate
+                self._refresh_lists()
+                self._select(id_)
+                dialog.destroy()
+            except StudioError as exc:
+                messagebox.showerror("Cannot add knob", str(exc), parent=dialog)
+        self.button(dialog, "ADD AUTOMATABLE KNOB", create).pack(
+            fill="x", padx=18, pady=(12, 18))
+        dialog.grab_set()
+
     def _remove_text(self):
-        if not self.document or not self.selected:
+        if self.busy or not self.document or not self.selected:
             return
         candidate = copy.deepcopy(self.document)
         candidate["components"] = [c for c in candidate["components"]
-                                   if c["id"] != self.selected or c["type"] != "text"]
+                                   if c["id"] != self.selected or c["type"] not in ("text", "effect_knob")]
         if len(candidate["components"]) == len(self.document["components"]):
             self._notify("Built-in controls cannot be deleted.", error=True)
             return
@@ -439,10 +489,11 @@ class StudioApp:
         return idx, self.document["chain"][idx]
 
     def _add_node(self, kind):
-        if not self.document:
+        if self.busy or not self.document:
             return
         candidate = copy.deepcopy(self.document)
         ids = {n["id"] for n in candidate["chain"]}
+        ids.update(entry["node"] for entry in registry_specs(candidate))
         idx = 1
         while f"{kind}_{idx}" in ids:
             idx += 1
@@ -457,6 +508,8 @@ class StudioApp:
             messagebox.showerror("Cannot add DSP node", str(exc), parent=self.root)
 
     def _move_node(self, direction):
+        if self.busy:
+            return
         idx, node = self._selected_node()
         if idx is None or idx == 0 or idx+direction <= 0 or idx+direction >= len(self.document["chain"]):
             return
@@ -466,6 +519,8 @@ class StudioApp:
         self.dsp_list.selection_set(idx+direction)
 
     def _toggle_node(self):
+        if self.busy:
+            return
         idx, node = self._selected_node()
         if idx is None or idx == 0:
             self._notify("Built-in Gain is always enabled", error=True)
@@ -475,17 +530,44 @@ class StudioApp:
         self.dsp_list.selection_set(idx)
 
     def _remove_node(self):
+        if self.busy:
+            return
         idx, node = self._selected_node()
         if idx is None or idx == 0:
             return
-        del self.document["chain"][idx]
-        self._refresh_lists()
+        if not messagebox.askyesno("Remove DSP block",
+                "Remove this DSP block? Its saved parameter IDs will be retired, "
+                "not reused. Existing automation remains addressable.", parent=self.root):
+            return
+        candidate = copy.deepcopy(self.document)
+        deleted_id = candidate["chain"][idx]["id"]
+        del candidate["chain"][idx]
+        candidate["components"] = [
+            c for c in candidate["components"]
+            if not (c["type"] == "effect_knob"
+                    and c.get("parameter_id", "").startswith("fx_" + deleted_id + "_"))
+        ]
+        try:
+            validate_studio(candidate)
+            self.document = candidate
+            self._refresh_lists()
+            self._draw_canvas()
+        except StudioError as exc:
+            messagebox.showerror("Cannot remove DSP block", str(exc), parent=self.root)
 
     def _edit_node(self):
+        if self.busy:
+            return
         idx, node = self._selected_node()
         if idx is None or node["type"] == "gain":
             return
         key = "drive" if node["type"] == "saturate" else "cutoff_hz"
+        param_id = f"fx_{node['id']}_{key}"
+        if param_id in {spec["id"] for spec in registry_specs(self.document)}:
+            messagebox.showinfo("Saved parameter default",
+                "The initial value is locked to preserve existing DAW projects. "
+                "Use the effect knob in FL Studio to change the value.", parent=self.root)
+            return
         window = tk.Toplevel(self.root)
         window.title(f"Edit {node['id']}")
         window.configure(bg=PANEL)
