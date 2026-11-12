@@ -28,7 +28,12 @@ Optional use of a fully cloned local Steinberg SDK:
 - Host automation parameter ID 1000 with sample-offset application.
 - Pure SkellNative Gain DSP in the float32 path, double-precision fallback.
 - Product-bound, versioned SkellNative state save/restore.
-- Reports **zero latency samples**. No editor yet (host generic controls only).
+- Reports **zero latency samples**.
+- SkellDraw v0.1 is an original native Win32 embedded HWND editor (no JUCE,
+  no VSTGUI) with an interactive gain control, live value display, double-click
+  reset, mouse wheel, DAW edit gestures, and host-resize support.
+- The provisional hardware-inspired black/green appearance is deliberately
+  **not** the yet-unapproved master Skelly skull asset.
 
 ## Must be verified before a public build
 
@@ -37,7 +42,10 @@ Optional use of a fully cloned local Steinberg SDK:
 3. Real FL Studio loading, instance deletion, multiple-instance lifecycle.
 4. Host automation rendering, sample-accurate event changes and state recall.
 5. Realtime allocation/glitch test, CPU cost, 44.1/48/96 kHz parity.
-6. Approved SkellDraw editor and brand treatment.
+6. Native SkellDraw HWND lifecycle and mouse interaction smoke in Windows CI.
+7. FL Studio screenshot review, plugin reopening/unloading, multiple editors,
+   live automation feedback, monitor scaling and GPU/CPU performance.
+8. Approved master skull and final SkellDraw component styling.
 
 Changing from JUCE to direct SDK does **not** guarantee lower algorithmic
 latency or CPU. This proof does not modify shipped Skelly plugin identities.
