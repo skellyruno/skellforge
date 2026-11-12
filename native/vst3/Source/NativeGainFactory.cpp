@@ -1,9 +1,11 @@
 // Original Skelly VST3 factory, two classes: audio processor and controller.
 #include "NativeGainIDs.h"
-#include "public.sdk/source/main/pluginfactory_constexpr.h"
 #include "pluginterfaces/vst/vsttypes.h"
 #include "pluginterfaces/vst/ivstaudioprocessor.h"
 #include "pluginterfaces/vst/ivsteditcontroller.h"
+// Must be last: ivstcomponent.h defines the older factory macros.
+// The constexpr factory header replaces those macros and fixes factory export.
+#include "public.sdk/source/main/pluginfactory_constexpr.h"
 
 namespace Skelly::NativeGain {
 Steinberg::FUnknown* createProcessor(void*);
