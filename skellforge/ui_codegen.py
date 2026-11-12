@@ -6,6 +6,7 @@ editor is open and always use the saved APVTS parameter IDs.
 from __future__ import annotations
 
 import json
+from .automation import unified_specs
 
 
 def _rect(component: dict) -> str:
@@ -21,6 +22,7 @@ def render_ui(data: dict, header: str) -> str:
     height = data["canvas"]["height"]
     components = {c["id"]: c for c in data["components"]}
     params = [c for c in data["components"] if c["type"] == "effect_knob"]
+    specs = {s["id"]: s for s in unified_specs(data)}
     lines = [
         header, "#pragma once\n#include <JuceHeader.h>\n",
         "#include <SkellCore/StudioUI.h>\n#include <memory>\n#include <vector>\n",
@@ -52,7 +54,7 @@ def render_ui(data: dict, header: str) -> str:
             "            parent.addAndMakeVisible(*knob);\n",
             f"            auto attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>"
             f"(state, {_literal(c['parameter_id'])}, *knob);\n",
-            "            skellcore::ui::configureStudioKnob(*knob, knob->getValue());\n",
+            f"            skellcore::ui::configureStudioKnob(*knob, {specs[c['parameter_id']]['default']:.9g});\n",
             "            knobs_.push_back(std::move(knob));\n",
             "            attachments_.push_back(std::move(attachment));\n",
             "        }\n",
