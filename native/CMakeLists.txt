@@ -1,0 +1,22 @@
+cmake_minimum_required(VERSION 3.16)
+project(SkellNativeDSP VERSION 0.1 LANGUAGES CXX)
+
+# JUCE-free C++17 DSP foundation. No plugin SDK or GUI dependencies.
+add_library(SkellNativeDSP INTERFACE)
+target_include_directories(SkellNativeDSP INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>)
+target_compile_features(SkellNativeDSP INTERFACE cxx_std_17)
+
+option(SKELLNATIVE_BUILD_TESTS "Build JUCE-free regression tests" ON)
+if(SKELLNATIVE_BUILD_TESTS)
+  enable_testing()
+  add_executable(SkellNativeDspTests tests/test_native_dsp.cpp)
+  target_link_libraries(SkellNativeDspTests PRIVATE SkellNativeDSP)
+  target_compile_features(SkellNativeDspTests PRIVATE cxx_std_17)
+  if(MSVC)
+    target_compile_options(SkellNativeDspTests PRIVATE /W4 /WX)
+  else()
+    target_compile_options(SkellNativeDspTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME SkellNativeDspTests COMMAND SkellNativeDspTests)
+endif()
