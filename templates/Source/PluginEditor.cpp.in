@@ -9,8 +9,13 @@
     std::fprintf(stderr,"FORGE_EDITOR_DIAG: base and members constructed\n");std::fflush(stderr);
     setLookAndFeel(&skin_);
     std::fprintf(stderr,"FORGE_EDITOR_DIAG: LookAndFeel set\n");std::fflush(stderr);
+    // A standalone headless preview is not embedded in a DAW host window.
+    // Its Scene renderer sets sizes directly; keep the actual VST3 resizable.
+#if !defined(SKELLFORGE_HEADLESS_PREVIEW)
     setResizable(true, true);
     setResizeLimits(390, 260, 900, 600);
+#endif
+    std::fprintf(stderr,"FORGE_EDITOR_DIAG: resize setup completed\n");std::fflush(stderr);
     title_.setText("@@NAME@@", juce::dontSendNotification);
     title_.setFont(juce::Font(juce::FontOptions(21.0f).withStyle("Bold")));
     title_.setJustificationType(juce::Justification::centredLeft);
