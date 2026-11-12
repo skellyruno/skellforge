@@ -265,7 +265,8 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     ellipse(buffer,175,93,299,217,RGB(20,27,24),RGB(5,8,7),4);
     ellipse(buffer,185,103,289,207,RGB(39,50,44),RGB(70,84,74),2);
     ellipse(buffer,193,111,281,199,RGB(19,26,22),RGB(111,126,114),1);
-    line(buffer,198,115,270,115,RGB(75,91,79),2);
+    // No flat horizontal stroke over the knob face: let its concentric
+    // rings and radial indicator describe the hardware lighting.
     const float value=std::clamp(delegate_.getGain(),0.0f,1.0f);
     lastPaintGain_=value;
     for(int t=0;t<=34;++t) {

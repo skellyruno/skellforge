@@ -56,8 +56,15 @@ int main() {
     UpdateWindow(child);
     HDC dc=GetDC(child);
     const COLORREF top=dc ? GetPixel(dc,240,1) : CLR_INVALID;
+    const COLORREF knobTop=dc ? GetPixel(dc,220,115) : CLR_INVALID;
     if(dc) ReleaseDC(child,dc);
     if (!verify(top==RGB(141,255,68),"custom green painted top trim")) {
+        view.removed(); cleanup(); return 1;
+    }
+    // Regression: an old artificial specular highlight crossed the knob
+    // face between logical x=198..270 at y=115. Keep that strip clear.
+    if (!verify(knobTop!=CLR_INVALID && knobTop!=RGB(75,91,79),
+                "no straight highlight across upper knob face")) {
         view.removed(); cleanup(); return 1;
     }
 
