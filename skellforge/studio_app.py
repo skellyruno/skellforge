@@ -18,6 +18,7 @@ from .local import build_and_export, read_history, find_verified_vst3, install_v
 from .preview import render_real_preview, SCENES
 from .studio import StudioError, load_studio, save_studio, regenerate, validate_studio
 from .automation import available_parameters, registry_specs
+from .skelllang import SkellLangError, import_to_studio_model, export_from_studio
 
 BG = "#090b0b"
 PANEL = "#141818"
@@ -91,6 +92,8 @@ class StudioApp:
         self.button(bar, "NEW PLUGIN", self._new_project).pack(side="left", padx=8, pady=8)
         self.button(bar, "OPEN PROJECT", self._open_project, color=RAISED, fg=WHITE).pack(side="left", padx=5)
         self.button(bar, "SAVE DESIGN", self._save, color=RAISED, fg=GREEN).pack(side="left", padx=5)
+        self.button(bar, "IMPORT .SKELL", self._import_skell, color=RAISED, fg=GREEN).pack(side="left", padx=5)
+        self.button(bar, "EXPORT .SKELL", self._export_skell, color=RAISED, fg=GREEN).pack(side="left", padx=5)
         self.button(bar, "VALIDATE", self._validate, color=RAISED, fg=WHITE).pack(side="left", padx=5)
         self.button(bar, "BUILD VST3", lambda: self._switch_build(), color=GREEN).pack(side="right", padx=8)
 
@@ -623,6 +626,55 @@ class StudioApp:
                 messagebox.showerror("Invalid DSP setting", str(exc), parent=window)
         self.button(window, "APPLY", apply).pack(padx=20, pady=20, fill="x")
         window.grab_set()
+
+    def _import_skell(self):
+        if self.busy or not self.project or not self.document:
+            self._notify("Open a project before importing SkellLang.", error=True)
+            return
+        filename = filedialog.askopenfilename(
+            parent=self.root, title="Import a .skell design",
+            filetypes=[("SkellLang source", "*.skell")])
+        if not filename:
+            return
+        try:
+            candidate = import_to_studio_model(self.project, Path(filename))
+        except (SkellLangError, OSError, ValueError) as exc:
+            messagebox.showerror("SkellLang import refused", str(exc), parent=self.root)
+            return
+        if not messagebox.askyesno("Import SkellLang",
+                "Replace the current in-memory layout and DSP chain with this "
+                "validated .skell design? Existing saved project files will stay "
+                "unchanged until you click SAVE DESIGN.", parent=self.root):
+            return
+        self.document = candidate
+        self.selected = None
+        self._refresh_lists()
+        self._draw_canvas()
+        self._notify("SkellLang design imported in memory. Review and SAVE DESIGN.")
+
+    def _export_skell(self):
+        if self.busy or not self.project or not self.document:
+            self._notify("Open a project before exporting SkellLang.", error=True)
+            return
+        try:
+            if self.document != load_studio(self.project):
+                messagebox.showinfo("Save design first",
+                    "Save the current Studio design before exporting a lossless "
+                    ".skell source file.", parent=self.root)
+                return
+        except (StudioError, OSError) as exc:
+            messagebox.showerror("Cannot export", str(exc), parent=self.root)
+            return
+        destination = filedialog.asksaveasfilename(
+            parent=self.root, title="Export SkellLang source",
+            defaultextension=".skell", filetypes=[("SkellLang source", "*.skell")])
+        if not destination:
+            return
+        try:
+            path = export_from_studio(self.project, Path(destination))
+            self._notify(f"Exported SkellLang: {path}")
+        except (SkellLangError, OSError, ValueError) as exc:
+            messagebox.showerror("SkellLang export refused", str(exc), parent=self.root)
 
     def _save(self):
         if self.busy or not self.document or not self.project:

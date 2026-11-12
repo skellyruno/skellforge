@@ -11,7 +11,7 @@ from pathlib import Path
 from skellforge.forge import main, validate_project
 from skellforge.skelllang import (
     SkellLangError, compile_source, compile_file, export_json,
-    format_source, export_from_studio,
+    format_source, export_from_studio, import_to_studio_model,
 )
 from skellforge.studio import load_studio
 
@@ -125,6 +125,28 @@ class SkellLangTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             self.assertEqual(main(["lang-new", str(self.source), "Skell Warmth",
                                    str(destination), "--code", "SZ91"]), 1)
+
+    def test_import_to_studio_is_in_memory_only(self):
+        from skellforge.forge import create_project
+        project = self.root / "import-target"
+        create_project("Skell Import", project, "SZ95")
+        original = (project / "forge-studio.json").read_bytes()
+        imported = import_to_studio_model(project, self.source)
+        self.assertEqual(imported["chain"][1]["id"], "warmth")
+        self.assertEqual(len(imported["parameter_registry"]), 2)
+        self.assertEqual(original, (project / "forge-studio.json").read_bytes())
+
+    def test_import_cannot_change_published_parameter_default(self):
+        project = self.root / "published"
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["lang-new", str(self.source), "Skell Published",
+                                   str(project), "--code", "SZ96"]), 0)
+        other = self.root / "changed.skell"
+        other.write_text(GOOD.replace("warmth 2.5 on", "warmth 9.0 on"),
+                         encoding="utf-8")
+        with self.assertRaisesRegex(SkellLangError, "compatibility"):
+            import_to_studio_model(project, other)
+        self.assertEqual(load_studio(project)["chain"][1]["drive"], 2.5)
 
     def test_source_roundtrip_without_registry(self):
         scene = compile_source(GOOD)

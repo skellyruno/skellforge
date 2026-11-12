@@ -286,3 +286,21 @@ def export_from_studio(project: Path, destination: Path) -> Path:
     except FileExistsError as exc:
         raise SkellLangError(f"Refusing to overwrite existing file: {output}") from exc
     return output
+
+
+def import_to_studio_model(project: Path, source: Path) -> dict:
+    """Read SkellLang into memory without modifying a saved Studio project.
+
+    Merge reserved DAW automation IDs before exposing the design to the GUI.
+    Existing IDs/defaults cannot be silently reassigned by an import.
+    """
+    from .studio import load_studio
+    from .automation import ParameterError, sync_registry
+    try:
+        previous = load_studio(Path(project))
+        candidate = compile_file(source)
+        sync_registry(candidate, previous)
+        validate_studio(candidate)
+        return candidate
+    except (StudioError, ParameterError) as exc:
+        raise SkellLangError(f"SkellLang import would violate host compatibility: {exc}") from exc
