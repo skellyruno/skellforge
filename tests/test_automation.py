@@ -135,6 +135,33 @@ class AutomationTests(unittest.TestCase):
         with self.assertRaises(StudioError):
             validate_studio(doc)
 
+    def test_generated_header_preflight_is_all_or_nothing(self):
+        doc = load_studio(self.project)
+        before_ui = (self.project / "Source" / "ForgeUI.h").read_bytes()
+        doc["components"].append({
+            "id": "release_note", "type": "text",
+            "text": "CHECK", "x": 24, "y": 262, "w": 120, "h": 22,
+        })
+        save_studio(self.project, doc)
+        protected = self.project / "Source" / "ForgeParameters.h"
+        protected.write_text("User authored safe header", encoding="utf-8")
+        with self.assertRaisesRegex(StudioError, "Refusing"):
+            regenerate(self.project)
+        self.assertEqual(before_ui, (self.project / "Source" / "ForgeUI.h").read_bytes())
+
+    def test_effect_knob_caption_and_mappings_are_bounded(self):
+        doc = load_studio(self.project)
+        doc["chain"].append(self._drive())
+        doc["components"].append({
+            "id": "fxcontrol", "type": "effect_knob",
+            "parameter_id": "fx_saturate_1_drive",
+            "text": "", "x": 265, "y": 148, "w": 110, "h": 108,
+        })
+        with self.assertRaisesRegex(StudioError, "captions"):
+            validate_studio(doc)
+        doc["components"][-1]["text"] = "DRIVE"
+        validate_studio(doc)
+
     def test_output_stable_and_user_source_never_overwritten(self):
         doc = load_studio(self.project)
         original = (self.project / "Source"/"PluginProcessor.cpp").read_bytes()
