@@ -52,7 +52,7 @@ target_compile_features(SkellNativeGain PRIVATE cxx_std_17)
 target_include_directories(SkellNativeGain PRIVATE "${CMAKE_CURRENT_LIST_DIR}/Source")
 target_link_libraries(SkellNativeGain PRIVATE sdk SkellNativeDSP user32 gdi32)
 
-# Independent actual HWND attach/paint/input smoke: also runs with no JUCE.
+# Independent actual HWND attach, paint, resizing and input smoke.
 add_executable(SkellDrawUiSmoke
   tests/SkellDrawUiSmoke.cpp
   Source/SkellDrawWin32.h
