@@ -5,6 +5,8 @@ bypassed and audio-neutral.
 """
 import sys
 from pathlib import Path
+# Permit direct execution from tools/ as well as from python -m.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from skellforge.studio import load_studio, save_studio, regenerate
 
 if len(sys.argv) != 2:
