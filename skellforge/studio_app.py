@@ -125,7 +125,8 @@ class StudioApp:
         self.components_list.bind("<<ListboxSelect>>", self._on_list_select)
         self.button(left, "+ ADD TEXT", self._add_text).pack(fill="x", padx=8, pady=(12, 4))
         self.button(left, "+ ADD FX KNOB", self._add_effect_knob).pack(fill="x", padx=8, pady=4)
-        self.button(left, "REMOVE LABEL / KNOB", self._remove_text, color=RAISED, fg=WHITE).pack(fill="x", padx=8, pady=4)
+        self.button(left, "+ ADD OUTPUT METER", self._add_meter).pack(fill="x", padx=8, pady=4)
+        self.button(left, "REMOVE LABEL / KNOB / METER", self._remove_text, color=RAISED, fg=WHITE).pack(fill="x", padx=8, pady=4)
         self.label(left, "Drag to position. FX knobs\nconnect to host automation.\nSave before building.", color=MUTED, size=9,
                    justify="left").pack(anchor="w", padx=12, pady=12)
 
@@ -335,7 +336,12 @@ class StudioApp:
             x2, y2 = ox+(c["x"]+c["w"])*s, oy+(c["y"]+c["h"])*s
             name, kind = c["id"], c["type"]
             selected = name == self.selected
-            if kind in ("gain_knob", "effect_knob"):
+            if kind == "meter":
+                cv.create_rectangle(x1, y1, x2, y2, fill="#172019", outline=LINE, tags=(name,))
+                cv.create_text(x1+6*s, (y1+y2)/2, anchor="w",
+                               text=c.get("text", "OUT"), fill=GREEN,
+                               font=("Segoe UI", max(8, int(9*s))), tags=(name,))
+            elif kind in ("gain_knob", "effect_knob"):
                 diam = min(x2-x1, y2-y1)*0.7
                 cx, cy = (x1+x2)/2, (y1+y2)/2
                 cv.create_oval(cx-diam/2,cy-diam/2,cx+diam/2,cy+diam/2,
@@ -401,7 +407,7 @@ class StudioApp:
         try:
             for key in ("x","y","w","h"):
                 item[key] = int(self.coord_inputs[key].get().strip())
-            if item["type"] in ("text", "effect_knob"):
+            if item["type"] in ("text", "effect_knob", "meter"):
                 item["text"] = self.coord_inputs["text"].get().strip()
             validate_studio(candidate)
             self.document = candidate
@@ -428,6 +434,27 @@ class StudioApp:
             self._select(identifier)
         except StudioError as exc:
             messagebox.showerror("Cannot add label", str(exc), parent=self.root)
+
+    def _add_meter(self):
+        if self.busy or not self.document:
+            return
+        candidate = copy.deepcopy(self.document)
+        ids = {item["id"] for item in candidate["components"]}
+        n = 1
+        while f"meter_{n}" in ids:
+            n += 1
+        name = f"meter_{n}"
+        candidate["components"].append({
+            "id": name, "type": "meter", "text": "OUT",
+            "x": 24, "y": 272, "w": 160, "h": 24,
+        })
+        try:
+            validate_studio(candidate)
+            self.document = candidate
+            self._refresh_lists()
+            self._select(name)
+        except StudioError as exc:
+            messagebox.showerror("Cannot add audio meter", str(exc), parent=self.root)
 
     def _add_effect_knob(self):
         if self.busy or not self.document:
@@ -481,7 +508,7 @@ class StudioApp:
             return
         candidate = copy.deepcopy(self.document)
         candidate["components"] = [c for c in candidate["components"]
-                                   if c["id"] != self.selected or c["type"] not in ("text", "effect_knob")]
+                                   if c["id"] != self.selected or c["type"] not in ("text", "effect_knob", "meter")]
         if len(candidate["components"]) == len(self.document["components"]):
             self._notify("Built-in controls cannot be deleted.", error=True)
             return
