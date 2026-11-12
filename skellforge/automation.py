@@ -175,9 +175,10 @@ def render_graph(data: dict, header: str) -> str:
     active = [n for n in data["chain"][1:] if n["enabled"]]
     lines = [
         header,
-        "#pragma once\n#include <JuceHeader.h>\n",
+        "#pragma once\n#include <juce_audio_processors/juce_audio_processors.h>\n",
         "#include <algorithm>\n#include <array>\n#include <atomic>\n#include <cmath>\n",
         "namespace forgedsp {\nclass Graph {\npublic:\n",
+        f"    static constexpr int enabledNodeCount = {len(active)};\n",
         "    void bind(juce::AudioProcessorValueTreeState& parameters) noexcept {\n",
     ]
     for idx, node in enumerate(active):
