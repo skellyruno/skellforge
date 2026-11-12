@@ -274,6 +274,14 @@ def parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit", help="Read-only audit of an existing JUCE plugin")
     audit.add_argument("project", type=Path)
     audit.add_argument("--json", action="store_true", help="Print machine-readable report")
+    local = sub.add_parser("build-local", help="Build, verify real x64 VST3, export ZIP locally and record history")
+    local.add_argument("project", type=Path)
+    local.add_argument("--juce-path", type=Path)
+    local.add_argument("--core-path", type=Path)
+    local.add_argument("--parallel", type=int, default=2)
+    edit = sub.add_parser("studio", help="Launch local desktop visual studio")
+    export = sub.add_parser("regenerate", help="Validate saved Studio UI/DSP and generate C++ headers")
+    export.add_argument("project", type=Path)
     sub.add_parser("doctor", help="Display environment and dependency status")
     return p
 
@@ -309,6 +317,17 @@ def main(argv: list[str] | None = None) -> int:
                 for warning in report["warnings"]:
                     print(f"  CAUTION: {warning}")
                 print("  Automatic migration: disabled (protect IDs and DSP)")
+        elif args.action == "build-local":
+            from .local import build_and_export
+            output = build_and_export(args.project, juce_path=args.juce_path,
+                                      core_path=args.core_path, parallel=args.parallel,
+                                      log=print)
+            print("Exported: " + output["archive"])
+        elif args.action == "regenerate":
+            print("Regenerated: " + (", ".join(regenerate(args.project)) or "already current"))
+        elif args.action == "studio":
+            from .studio_app import main as studio_main
+            studio_main()
         elif args.action == "doctor":
             doctor()
         return 0
