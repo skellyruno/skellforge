@@ -83,8 +83,8 @@ audio callback, or replace C++ compilation. Project creation never overwrites
 an existing path. See [SkellLang](docs/SKELLLANG.md). The source exporter refuses lossy conversions and preserves retired parameter IDs.
 
 The separate JUCE-free [SkellNative source SDK](docs/NATIVE_SDK.md) now defines
-plugin metadata, normalized parameter events, audio blocks and processing
-lifecycle. It is **not yet** a compatible direct-VST3 backend, nor a stable
+plugin metadata, normalized parameter events, audio blocks, processing
+lifecycle and an experimental versioned off-audio-thread parameter state format. It is **not yet** a compatible direct-VST3 backend, nor a stable
 binary ABI. See the [master engineering plan](docs/MASTER_PLAN.md).
 
 ## What's in Studio v0.4 (experimental)

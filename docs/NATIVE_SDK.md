@@ -18,6 +18,21 @@ The process contract:
 
 This is a C++ SOURCE-level interface. It is NOT a stable dynamic-link binary ABI across compilers. A versioned C ABI with explicit memory ownership, compatibility fields and stable calling conventions is necessary before distributing binary third-party modules.
 
+## Experimental versioned state snapshots
+
+The portable `native/include/SkellNative/State.h` now provides a bounded,
+deterministic state encoding for normalized parameter values with a persistent
+product ID and parameter IDs. It uses explicit little-endian fields, format
+version 1, bounds checks, and an FNV-1a integrity checksum.
+
+This is **off-audio-thread only**: it allocates and must not be called in
+`process()`. The checksum is for accidental corruption detection, **not
+authentication or encryption**. The native VST3 adapter must map this safely
+onto actual host getState/setState and verify backwards compatibility.
+
+C++ regression fixtures check exact round trips, duplicate IDs, truncated
+buffers, wrong product identity, nonfinite values and corrupted payloads.
+
 Roadmap:
 1. Audit DSP parity and runtime cost against the JUCE path.
 2. Implement a direct-Steinberg-SDK Windows gain plugin that adapts this contract.
