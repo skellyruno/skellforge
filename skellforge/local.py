@@ -144,16 +144,21 @@ def build_and_export(project: Path, *, juce_path: Path | None = None,
         raise
     finally:
         record["duration_seconds"] = round(time.monotonic() - started, 3)
-        with (history_dir / "history.jsonl").open("a", encoding="utf-8") as out:
-            out.write(json.dumps(record, ensure_ascii=True) + "\n")
+        try:
+            with (history_dir / "history.jsonl").open("a", encoding="utf-8") as out:
+                out.write(json.dumps(record, ensure_ascii=True) + "\n")
+        except OSError as exc:
+            log(f"WARNING: Could not record build history: {exc}")
 
 
 def read_history(project: Path, limit: int = 50) -> list[dict]:
     path = project / ".skellforge" / "history.jsonl"
     if not path.is_file():
         return []
-    # Bound UI memory, even if a user has thousands of builds.
-    lines = path.read_text(encoding="utf-8").splitlines()[-max(1, min(limit, 200)):]
+    # Stream only the recent lines. A long build history never loads fully.
+    from collections import deque
+    with path.open("r", encoding="utf-8") as source:
+        lines = deque(source, maxlen=max(1, min(limit, 200)))
     records = []
     for line in reversed(lines):
         try:
@@ -173,8 +178,11 @@ def install_verified_vst3(project: Path, scan_folder: Path) -> dict:
     if sys.platform != "win32":
         raise ForgeError("VST3 installation is supported only on Windows")
     project = project.expanduser().resolve()
-    scan_folder = scan_folder.expanduser().resolve()
-    if not scan_folder.is_dir() or scan_folder.is_symlink():
+    scan_folder = scan_folder.expanduser()
+    if scan_folder.is_symlink():
+        raise ForgeError("Select a real VST3 scan folder, not a symbolic link")
+    scan_folder = scan_folder.resolve()
+    if not scan_folder.is_dir():
         raise ForgeError("Select an existing, non-symlink VST3 scan folder")
     bundle, _ = find_verified_vst3(project)
     destination = scan_folder / bundle.name
@@ -206,12 +214,17 @@ def install_verified_vst3(project: Path, scan_folder: Path) -> dict:
             previous_moved = True
         staging.rename(destination)
         new_installed = True
+        cleanup_warning = None
         if previous_moved:
-            shutil.rmtree(quarantine)
+            try:
+                shutil.rmtree(quarantine)
+            except OSError as exc:
+                cleanup_warning = f"Old bundle cleanup failed; inspect {quarantine}: {exc}"
         return {
             "installed": str(destination),
             "backup": str(backup) if backup else None,
             "scan_folder": str(scan_folder),
+            "cleanup_warning": cleanup_warning,
         }
     except Exception as exc:
         if previous_moved and not new_installed:
