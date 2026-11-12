@@ -66,11 +66,11 @@ def validate_studio(data: dict) -> dict:
         if cid in ids:
             raise StudioError(f"Duplicate component ID: {cid}")
         ids.add(cid)
-        if kind not in (*MAIN, "text", "effect_knob"):
+        if kind not in (*MAIN, "text", "effect_knob", "meter"):
             raise StudioError(f"Unrecognized visual component: {kind}")
         if kind in MAIN and cid != kind:
             raise StudioError("The four existing plugin controls have immutable IDs")
-        if kind in ("text", "effect_knob") and cid in MAIN:
+        if kind in ("text", "effect_knob", "meter") and cid in MAIN:
             raise StudioError("Additional text cannot replace a built-in control")
         x = _int(component.get("x"), f"{cid}.x", 0, width)
         y = _int(component.get("y"), f"{cid}.y", 0, height)
@@ -78,11 +78,11 @@ def validate_studio(data: dict) -> dict:
         h = _int(component.get("h"), f"{cid}.h", 12, height)
         if x + w > width or y + h > height:
             raise StudioError(f"Visual component {cid} is outside the canvas")
-        if kind == "effect_knob":
+        if kind in ("effect_knob", "meter"):
             caption = component.get("text")
             if (not isinstance(caption, str) or not 1 <= len(caption) <= 64
                     or any(ord(c) < 32 for c in caption)):
-                raise StudioError("Effect knob captions must be 1–64 printable characters")
+                raise StudioError("Control captions must be 1–64 printable characters")
         if kind == "text":
             value = component.get("text")
             if not isinstance(value, str) or not 1 <= len(value) <= 64:
