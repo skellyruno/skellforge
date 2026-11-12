@@ -34,7 +34,9 @@ def verify_preview_outputs(folder: Path) -> dict:
         raise ForgeError("Real-editor capture count is incomplete")
     if len(scenes) != len(SCENES):
         raise ForgeError("Unexpected number of real-editor captures")
-    results = {}
+    # Validate all identities before sizes, so duplicate screenshots cannot be
+    # masked by a confusing dimensions error from a different scene.
+    seen = set()
     for item in scenes:
         if not isinstance(item, dict):
             raise ForgeError("Malformed real-editor screenshot metadata")
@@ -44,8 +46,13 @@ def verify_preview_outputs(folder: Path) -> dict:
         if name != Path(name).name or "\\" in name or "/" in name:
             raise ForgeError("Unsafe real-editor screenshot path")
         scene = name[:-4]
-        if scene not in SCENES or scene in results:
+        if scene not in SCENES or scene in seen:
             raise ForgeError("Duplicate/unrecognized real-editor scene")
+        seen.add(scene)
+    results = {}
+    for item in scenes:
+        name = item["file"]
+        scene = name[:-4]
         width, height = SCENES[scene]
         if item.get("width") != width or item.get("height") != height:
             raise ForgeError("Real-editor scene metadata dimensions mismatch")
