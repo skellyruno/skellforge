@@ -2,6 +2,8 @@
 #define NOMINMAX
 #endif
 #include "SkellDrawWin32.h"
+#include <SkellDraw/Components.h>
+#include <SkellDraw/Win32Painter.h>
 #include <windowsx.h>
 #include <algorithm>
 #include <cmath>
@@ -12,68 +14,22 @@
 namespace Skelly::NativeGain {
 
 namespace {
-constexpr wchar_t kClassName[] = L"SkellNativeSkellDrawView_0_1";
-constexpr int kBaseW = 480;
-constexpr int kBaseH = 300;
-constexpr UINT_PTR kPollTimer = 17;
-constexpr COLORREF kBg = RGB(8, 11, 10);
-constexpr COLORREF kPanel = RGB(15, 22, 18);
-constexpr COLORREF kGreen = RGB(141, 255, 68);
-constexpr COLORREF kMuted = RGB(142, 157, 143);
-constexpr float kPi = 3.14159265358979323846f;
-
-void fill(HDC dc, int x, int y, int w, int h, COLORREF color) noexcept {
-    const RECT rect{x, y, x+w, y+h};
-    if (HBRUSH brush = CreateSolidBrush(color)) {
-        FillRect(dc, &rect, brush);
-        DeleteObject(brush);
-    }
-}
-void line(HDC dc, int x0, int y0, int x1, int y1, COLORREF color, int thickness=1) noexcept {
-    if (HPEN pen = CreatePen(PS_SOLID, thickness, color)) {
-        const auto old = SelectObject(dc, pen);
-        MoveToEx(dc, x0, y0, nullptr);
-        LineTo(dc, x1, y1);
-        SelectObject(dc, old);
-        DeleteObject(pen);
-    }
-}
-void ellipse(HDC dc, int x0, int y0, int x1, int y1,
-             COLORREF inner, COLORREF outline, int border=1) noexcept {
-    HBRUSH brush = CreateSolidBrush(inner);
-    HPEN pen = CreatePen(PS_SOLID, border, outline);
-    if (brush && pen) {
-        auto oldB = SelectObject(dc,brush);
-        auto oldP = SelectObject(dc,pen);
-        Ellipse(dc,x0,y0,x1,y1);
-        SelectObject(dc,oldP);
-        SelectObject(dc,oldB);
-    }
-    if (pen) DeleteObject(pen);
-    if (brush) DeleteObject(brush);
-}
-void label(HDC dc, const wchar_t* value, int size, int weight, int x, int y, int w,
-           int h, COLORREF color, UINT alignment=DT_CENTER) noexcept {
-    HFONT font = CreateFontW(-size,0,0,0,weight,FALSE,FALSE,FALSE,DEFAULT_CHARSET,
-                            OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,
-                            DEFAULT_PITCH|FF_SWISS,L"Segoe UI");
-    if (!font) return;
-    const auto oldFont = SelectObject(dc,font);
-    SetBkMode(dc,TRANSPARENT);
-    SetTextColor(dc,color);
-    RECT rect{x,y,x+w,y+h};
-    DrawTextW(dc,value,-1,&rect,DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|alignment);
-    SelectObject(dc,oldFont);
-    DeleteObject(font);
-}
+constexpr wchar_t kClassName[]=L"SkellNativeSkellDrawView_0_1";
+constexpr int kBaseW=skelldraw::Layout::designWidth;
+constexpr int kBaseH=skelldraw::Layout::designHeight;
+constexpr UINT_PTR kPollTimer=17;
+constexpr COLORREF kBg=RGB(8,11,10);
+constexpr COLORREF kPanel=RGB(15,22,18);
+constexpr COLORREF kGreen=RGB(141,255,68);
+constexpr COLORREF kMuted=RGB(142,157,143);
+using skelldraw::win32::fill;
+using skelldraw::win32::line;
+using skelldraw::win32::label;
 bool isKnob(int x,int y) noexcept {
-    const int dx=x-237;
-    const int dy=y-155;
-    return dx*dx+dy*dy < 68*68;
+    return skelldraw::Layout::knob.contains({x,y});
 }
 int scaledCoordinate(int coordinate,int sourceSpan,int targetSpan) noexcept {
-    return targetSpan > 0 ? coordinate*sourceSpan/targetSpan : 0;
-}
+    return targetSpan>0 ? coordinate*sourceSpan/targetSpan : 0;
 } // namespace
 
 SkellDrawView::SkellDrawView(GainViewDelegate& delegate, Steinberg::FUnknown* owner)
@@ -156,7 +112,7 @@ Steinberg::tresult PLUGIN_API SkellDrawView::onWheel(float distance) {
 }
 void SkellDrawView::adjust(float step) noexcept {
     delegate_.beginGain();
-    delegate_.updateGain(std::clamp(delegate_.getGain()+step,0.0f,1.0f));
+    delegate_.updateGain(skelldraw::Knob::wheel(delegate_.getGain(),step/0.035f));
     delegate_.endGain();
     redraw();
 }
@@ -170,8 +126,7 @@ void SkellDrawView::editStart(int y) noexcept {
 }
 void SkellDrawView::editMove(int y) noexcept {
     if (!dragging_) return;
-    delegate_.updateGain(std::clamp(dragStartGain_+
-                                   (dragStartY_-y)*0.006f,0.0f,1.0f));
+    delegate_.updateGain(skelldraw::Knob::drag(dragStartGain_,dragStartY_-y));
     redraw();
 }
 void SkellDrawView::editEnd() noexcept {
@@ -259,28 +214,10 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     label(buffer,L"NATIVE",26,FW_BOLD,127,30,111,33,kGreen,DT_LEFT);
     label(buffer,L"GAIN / SKELLDRAW v0.1",11,FW_NORMAL,284,34,164,28,kMuted,DT_RIGHT);
 
-    // Shaped metallic concentric rings. No plugin-specific skull asset yet.
-    ellipse(buffer,161,79,313,231,RGB(30,39,33),RGB(9,14,11),3);
-    ellipse(buffer,169,87,305,223,RGB(56,67,61),RGB(122,134,125),2);
-    ellipse(buffer,175,93,299,217,RGB(20,27,24),RGB(5,8,7),4);
-    ellipse(buffer,185,103,289,207,RGB(39,50,44),RGB(70,84,74),2);
-    ellipse(buffer,193,111,281,199,RGB(19,26,22),RGB(111,126,114),1);
-    // No flat horizontal stroke over the knob face: let its concentric
-    // rings and radial indicator describe the hardware lighting.
-    const float value=std::clamp(delegate_.getGain(),0.0f,1.0f);
+    // Reusable SkellDraw knob; no flat highlight or plugin-specific skull.
+    const float value=skelldraw::unit(delegate_.getGain(),0.5f);
     lastPaintGain_=value;
-    for(int t=0;t<=34;++t) {
-        const float angle=(140.0f+260.0f*t/34.0f)*kPi/180.0f;
-        const int x0=237+static_cast<int>(78*std::cos(angle));
-        const int y0=155+static_cast<int>(78*std::sin(angle));
-        const int x1=237+static_cast<int>(85*std::cos(angle));
-        const int y1=155+static_cast<int>(85*std::sin(angle));
-        line(buffer,x0,y0,x1,y1,t<=static_cast<int>(value*34.0f)?kGreen:
-             RGB(59,76,65),t<=static_cast<int>(value*34.0f)?3:1);
-    }
-    const float angle=(140.0f+260.0f*value)*kPi/180.0f;
-    line(buffer,237,155,237+static_cast<int>(36*std::cos(angle)),
-         155+static_cast<int>(36*std::sin(angle)),kGreen,4);
+    skelldraw::win32::knob(buffer,value,kGreen);
 
     fill(buffer,339,103,104,84,RGB(8,15,11));
     line(buffer,339,103,443,103,RGB(65,87,68));
