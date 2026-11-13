@@ -21,7 +21,7 @@ class NativeVST3BlueprintTests(unittest.TestCase):
 
     def test_processor_controller_factory_complete(self):
         files = {p.name: p.read_text("utf-8") for p in (ROOT / "Source").glob("*")}
-        self.assertEqual(len(files), 5)
+        self.assertEqual(len(files), 7)
         self.assertIn("kProcessorUID", files["NativeGainFactory.cpp"])
         self.assertIn("kControllerUID", files["NativeGainFactory.cpp"])
         self.assertIn("setState", files["NativeGainProcessor.cpp"])
@@ -30,6 +30,12 @@ class NativeVST3BlueprintTests(unittest.TestCase):
         self.assertIn("kGainParam", files["NativeGainProcessor.cpp"])
         self.assertIn("kGainParam", files["NativeGainController.cpp"])
         self.assertIn("kernel_.process", files["NativeGainProcessor.cpp"])
+        self.assertIn("new SkellDrawView(", files["NativeGainController.cpp"])
+        self.assertIn("kPlatformTypeHWND", files["SkellDrawWin32.cpp"])
+        self.assertIn("WS_CHILD|WS_VISIBLE", files["SkellDrawWin32.cpp"])
+        self.assertIn("WM_LBUTTONDOWN", files["SkellDrawWin32.cpp"])
+        self.assertIn("WM_LBUTTONDBLCLK", files["SkellDrawWin32.cpp"])
+        self.assertIn("performEdit(kGainParam", files["NativeGainController.cpp"])
         for source in files.values():
             self.assertNotIn("JuceHeader", source)
             self.assertNotIn("#include <juce", source)
