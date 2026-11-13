@@ -18,19 +18,18 @@ constexpr wchar_t kClassName[]=L"SkellNativeSkellDrawView_0_1";
 constexpr int kBaseW=skelldraw::Layout::designWidth;
 constexpr int kBaseH=skelldraw::Layout::designHeight;
 constexpr UINT_PTR kPollTimer=17;
-constexpr COLORREF kBg=RGB(8,11,10);
-constexpr COLORREF kPanel=RGB(15,22,18);
-constexpr COLORREF kGreen=RGB(141,255,68);
-constexpr COLORREF kMuted=RGB(142,157,143);
+const skelldraw::Theme kTheme{};
+const COLORREF kBg=skelldraw::win32::color(kTheme.background);
+const COLORREF kPanel=skelldraw::win32::color(kTheme.panel);
+const COLORREF kGreen=skelldraw::win32::color(kTheme.accent);
+const COLORREF kMuted=skelldraw::win32::color(kTheme.muted);
 using skelldraw::win32::fill;
 using skelldraw::win32::line;
 using skelldraw::win32::label;
 bool isKnob(int x,int y) noexcept {
     return skelldraw::Layout::knob.contains({x,y});
 }
-int scaledCoordinate(int coordinate,int sourceSpan,int targetSpan) noexcept {
-    return targetSpan>0 ? coordinate*sourceSpan/targetSpan : 0;
-} // namespace
+ // namespace
 
 SkellDrawView::SkellDrawView(GainViewDelegate& delegate, Steinberg::FUnknown* owner)
     : Steinberg::CPluginView(), delegate_(delegate), owner_(owner) {
@@ -101,10 +100,10 @@ Steinberg::tresult PLUGIN_API SkellDrawView::onSize(Steinberg::ViewRect* rect) {
 Steinberg::tresult PLUGIN_API SkellDrawView::checkSizeConstraint(
     Steinberg::ViewRect* rect) {
     if (!rect) return Steinberg::kInvalidArgument;
-    // Fixed 8:5 ratio, bounded to fit small and large FL Studio windows.
-    const int width=std::clamp(rect->getWidth(),400,960);
-    rect->right=rect->left+width;
-    rect->bottom=rect->top+(width*5/8);
+    const auto size=skelldraw::Layout::constrain(
+        {rect->left,rect->top,rect->getWidth(),rect->getHeight()});
+    rect->right=rect->left+size.width;
+    rect->bottom=rect->top+size.height;
     return Steinberg::kResultTrue;
 }
 Steinberg::tresult PLUGIN_API SkellDrawView::onWheel(float distance) {
@@ -192,9 +191,10 @@ LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
     case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK: {
         RECT rect{}; GetClientRect(hwnd,&rect);
-        const int x=scaledCoordinate(GET_X_LPARAM(l),kBaseW,rect.right);
-        const int y=scaledCoordinate(GET_Y_LPARAM(l),kBaseH,rect.bottom);
-        if (!isKnob(x,y)) return 0;
+        const auto logical=skelldraw::Layout::logical(
+            {GET_X_LPARAM(l),GET_Y_LPARAM(l)},rect.right,rect.bottom);
+        if (!isKnob(logical.x,logical.y)) return 0;
+        const int y=logical.y;
         if (msg==WM_LBUTTONDBLCLK) { editEnd(); adjust(0.5f-delegate_.getGain()); }
         else editStart(y);
         return 0;
@@ -202,7 +202,8 @@ LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
     case WM_MOUSEMOVE:
         if (dragging_) {
             RECT rect{}; GetClientRect(hwnd,&rect);
-            editMove(scaledCoordinate(GET_Y_LPARAM(l),kBaseH,rect.bottom));
+            editMove(skelldraw::Layout::logical(
+                {GET_X_LPARAM(l),GET_Y_LPARAM(l)},rect.right,rect.bottom).y);
         }
         return 0;
     case WM_LBUTTONUP: editEnd(); return 0;
