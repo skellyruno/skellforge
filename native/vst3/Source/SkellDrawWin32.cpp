@@ -39,6 +39,7 @@ SkellDrawView::SkellDrawView(GainViewDelegate& delegate, Steinberg::FUnknown* ow
 }
 SkellDrawView::~SkellDrawView() {
     if (window_) removed();
+    releaseBackBuffer();
     if (owner_) { owner_->release(); owner_=nullptr; }
 }
 Steinberg::tresult PLUGIN_API SkellDrawView::isPlatformTypeSupported(
@@ -75,6 +76,8 @@ Steinberg::tresult PLUGIN_API SkellDrawView::attached(
 }
 Steinberg::tresult PLUGIN_API SkellDrawView::removed() {
     editEnd();
+    releaseBackBuffer();
+    meter_.reset();
     if (window_) {
         const HWND hwnd=window_;
         window_=nullptr;
@@ -140,8 +143,40 @@ void SkellDrawView::redraw() noexcept {
     if (window_) InvalidateRect(window_,nullptr,FALSE);
 }
 void SkellDrawView::updateTimer() noexcept {
-    const float value=delegate_.getGain();
-    if (std::abs(lastPaintGain_-value)>0.001f) redraw();
+    const bool meterChanged=meter_.update(delegate_.getPeak(),0.04f);
+    const float value=skelldraw::unit(delegate_.getGain(),0.5f);
+    if (meterChanged || std::abs(lastPaintGain_-value)>0.001f) redraw();
+}
+
+void SkellDrawView::releaseBackBuffer() noexcept {
+    if (backDc_) {
+        if (backOldBitmap_) SelectObject(backDc_,backOldBitmap_);
+        if (backBitmap_) DeleteObject(backBitmap_);
+        DeleteDC(backDc_);
+    }
+    backDc_=nullptr;
+    backBitmap_=nullptr;
+    backOldBitmap_=nullptr;
+    backWidth_=0;
+    backHeight_=0;
+}
+
+bool SkellDrawView::prepareBackBuffer(HDC screen,int width,int height) noexcept {
+    if (backDc_ && backWidth_==width && backHeight_==height) return true;
+    releaseBackBuffer();
+    backDc_=CreateCompatibleDC(screen);
+    if (!backDc_) return false;
+    backBitmap_=CreateCompatibleBitmap(screen,width,height);
+    if (!backBitmap_) { releaseBackBuffer(); return false; }
+    backOldBitmap_=SelectObject(backDc_,backBitmap_);
+    if (!backOldBitmap_ || backOldBitmap_==HGDI_ERROR) {
+        backOldBitmap_=nullptr;
+        releaseBackBuffer();
+        return false;
+    }
+    backWidth_=width;
+    backHeight_=height;
+    return true;
 }
 LRESULT CALLBACK SkellDrawView::windowProc(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
     auto* self=reinterpret_cast<SkellDrawView*>(GetWindowLongPtrW(hwnd,GWLP_USERDATA));
@@ -151,6 +186,7 @@ LRESULT CALLBACK SkellDrawView::windowProc(HWND hwnd,UINT msg,WPARAM w,LPARAM l)
 LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
     switch(msg) {
     case WM_ERASEBKGND: return 1; // Double-buffered WM_PAINT owns the surface.
+    case WM_SIZE: releaseBackBuffer(); return 0;
     case WM_PAINT: paint(hwnd); return 0;
     case WM_TIMER: if(w==kPollTimer) { updateTimer(); return 0; } break;
     case WM_LBUTTONDOWN:
@@ -190,15 +226,8 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     RECT client{}; GetClientRect(hwnd,&client);
     const int width=std::max(1,static_cast<int>(client.right));
     const int height=std::max(1,static_cast<int>(client.bottom));
-    HDC buffer=CreateCompatibleDC(dc);
-    HBITMAP bitmap=buffer ? CreateCompatibleBitmap(dc,width,height):nullptr;
-    if(!buffer || !bitmap) {
-        if(bitmap) DeleteObject(bitmap);
-        if(buffer) DeleteDC(buffer);
-        EndPaint(hwnd,&paint);
-        return;
-    }
-    const auto original=SelectObject(buffer,bitmap);
+    if (!prepareBackBuffer(dc,width,height)) { EndPaint(hwnd,&paint); return; }
+    const HDC buffer=backDc_;
     SetMapMode(buffer,MM_ANISOTROPIC);
     SetWindowExtEx(buffer,kBaseW,kBaseH,nullptr);
     SetViewportExtEx(buffer,width,height,nullptr);
@@ -226,6 +255,9 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     std::swprintf(level,48,L"%.2fx",static_cast<double>(amplitude));
     label(buffer,level,26,FW_BOLD,339,111,104,43,kGreen);
     label(buffer,L"LINEAR GAIN",10,FW_NORMAL,343,156,95,17,kMuted);
+    label(buffer,L"OUTPUT",10,FW_NORMAL,345,187,94,16,kMuted);
+    skelldraw::win32::outputMeter(buffer,skelldraw::Layout::meter,
+                                  meter_.level(),kGreen);
     label(buffer,L"DRAG / SCROLL",11,FW_NORMAL,35,206,128,22,kMuted,DT_LEFT);
     label(buffer,L"DOUBLE-CLICK TO RESET",10,FW_NORMAL,35,222,168,22,kMuted,DT_LEFT);
     label(buffer,L"SKELL AUDIO  |  NO JUCE",11,FW_NORMAL,31,254,416,16,RGB(116,139,120),DT_LEFT);
@@ -233,9 +265,6 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
 
     SetMapMode(buffer,MM_TEXT); // Source bitmap pixels, not logical UI units.
     BitBlt(dc,0,0,width,height,buffer,0,0,SRCCOPY);
-    SelectObject(buffer,original);
-    DeleteObject(bitmap);
-    DeleteDC(buffer);
     EndPaint(hwnd,&paint);
 }
 } // namespace Skelly::NativeGain
