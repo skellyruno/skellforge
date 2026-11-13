@@ -11,7 +11,7 @@
 #include <cstddef>
 #include <limits>
 
-#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#if !defined(SKELLNATIVE_DISABLE_SIMD) && (defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2))
 #define SKELLNATIVE_HAVE_SSE2 1
 #include <emmintrin.h>
 #else
