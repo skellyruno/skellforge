@@ -37,7 +37,7 @@ Result measure(Mode mode,double rate,std::size_t frames) {
     }
     const skellnative::Block block{{{left.data(),right.data()}},2,frames};
     skellnative::Gain gain;
-    gain.setLinear(1.0f); // No cumulative fade in repeated in-place runs.
+    gain.setLinear(1.0f); // Set a nontrivial gain in each timed block below.
     skellnative::Lowpass lowpass;
     lowpass.prepare(rate);
     lowpass.setCutoff(7500.0f);
@@ -58,8 +58,18 @@ Result measure(Mode mode,double rate,std::size_t frames) {
     std::array<double,trials> measured{};
     for(std::size_t trial=0;trial<trials+1;++trial) {
         const auto start=Clock::now();
-        for(std::size_t blockIndex=0;blockIndex<count;++blockIndex)
+        for(std::size_t blockIndex=0;blockIndex<count;++blockIndex) {
+            // Non-unity gain prevents an optimizing compiler from treating
+            // in-place gain as a no-op. The 0.5/2.0 pair avoids fading.
+            if(mode==Mode::gain || mode==Mode::gain_peak)
+                gain.setLinear((blockIndex & 1u) ? 2.0f : 0.5f);
+            if(mode==Mode::peak) {
+                // Vary the observed peak so the entire test cannot be
+                // hoisted out of the timed loop by constant propagation.
+                left[0]=static_cast<float>(0.02+0.001*(blockIndex%211u));
+            }
             if(!run()) return {};
+        }
         const auto end=Clock::now();
         if(trial) measured[trial-1]=
             std::chrono::duration<double,std::nano>(end-start).count();
