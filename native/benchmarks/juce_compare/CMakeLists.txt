@@ -1,0 +1,30 @@
+cmake_minimum_required(VERSION 3.25)
+project(SkellGainCompare VERSION 0.1.0 LANGUAGES C CXX)
+if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  message(FATAL_ERROR "Windows x64 only")
+endif()
+include(FetchContent)
+set(JUCE_PATH "" CACHE PATH "Optional local JUCE 8.0.12 checkout")
+if(JUCE_PATH)
+  if(NOT EXISTS "${JUCE_PATH}/CMakeLists.txt")
+    message(FATAL_ERROR "JUCE_PATH must contain JUCE/CMakeLists.txt")
+  endif()
+  add_subdirectory("${JUCE_PATH}" "${CMAKE_BINARY_DIR}/juce")
+else()
+  FetchContent_Declare(JUCE
+    GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
+    GIT_TAG 8.0.12 GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(JUCE)
+endif()
+juce_add_console_app(SkellGainCompare PRODUCT_NAME "SkellNative vs JUCE Gain")
+target_sources(SkellGainCompare PRIVATE compare_gain.cpp)
+target_include_directories(SkellGainCompare PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/../../include")
+target_compile_features(SkellGainCompare PRIVATE cxx_std_17)
+target_compile_definitions(SkellGainCompare PRIVATE JUCE_WEB_BROWSER=0
+  JUCE_USE_CURL=0 JUCE_DISPLAY_SPLASH_SCREEN=0)
+target_link_libraries(SkellGainCompare PRIVATE
+  juce::juce_dsp juce::juce_audio_basics juce::juce_core)
+if(MSVC)
+  target_compile_options(SkellGainCompare PRIVATE /O2 /W4)
+endif()
