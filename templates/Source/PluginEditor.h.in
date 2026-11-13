@@ -13,7 +13,7 @@ private:
     struct SkullHitArea final : juce::Button {
         SkullHitArea() : juce::Button("Theme") {
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
-            setTooltip("Click the shared skull to change the theme");
+            setTooltip("Click to change the theme");
         }
         void paintButton(juce::Graphics&, bool, bool) override {}
     };
