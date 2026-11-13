@@ -28,7 +28,7 @@ private:
     };
     void changeSkin();
     skellcore::ui::StudioLookAndFeel skin_{skellcore::ui::StudioSkin::Obsidian};
-    ThemeButton skull_;
+    ThemeButton themeButton_;
     juce::Label title_;
     juce::Label gainLabel_;
     juce::Slider gainKnob_;
