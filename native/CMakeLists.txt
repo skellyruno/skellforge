@@ -35,3 +35,20 @@ if(SKELLNATIVE_BUILD_BENCHMARKS)
   endif()
   add_test(NAME SkellNativeBenchmarkSmoke COMMAND SkellNativeBenchmark)
 endif()
+
+# UI semantics compile independently of a plugin host and of Windows.
+add_library(SkellDrawComponents INTERFACE)
+target_include_directories(SkellDrawComponents INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/skelldraw/include>)
+target_compile_features(SkellDrawComponents INTERFACE cxx_std_17)
+
+if(SKELLNATIVE_BUILD_TESTS)
+  add_executable(SkellDrawComponentsTests skelldraw/tests/test_components.cpp)
+  target_link_libraries(SkellDrawComponentsTests PRIVATE SkellDrawComponents)
+  if(MSVC)
+    target_compile_options(SkellDrawComponentsTests PRIVATE /W4 /WX)
+  else()
+    target_compile_options(SkellDrawComponentsTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME SkellDrawComponentsTests COMMAND SkellDrawComponentsTests)
+endif()
