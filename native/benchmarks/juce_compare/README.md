@@ -44,3 +44,17 @@ latency separately. The local script does not automate FL Studio.
 
 This is meant for the user's own laptop. Cloud runners only check the
 build and signal parity; their timings do not establish laptop performance.
+
+
+## CMake installed, but normal PowerShell says it is missing
+
+Visual Studio can install CMake without adding cmake.exe to the PATH of a
+regular PowerShell session. The updated runner detects:
+1. cmake.exe already on PATH;
+2. standalone CMake under Program Files;
+3. user-local CMake in AppData;
+4. bundled CMake in Visual Studio editions discovered through vswhere.exe.
+
+It prints the actual executable selected. If it still fails, open
+Developer PowerShell for Visual Studio and run cmake --version, or select
+C++ CMake tools for Windows in Visual Studio Installer.
