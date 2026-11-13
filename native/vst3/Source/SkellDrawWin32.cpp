@@ -29,7 +29,7 @@ using skelldraw::win32::label;
 bool isKnob(int x,int y) noexcept {
     return skelldraw::Layout::knob.contains({x,y});
 }
- // namespace
+} // namespace
 
 SkellDrawView::SkellDrawView(GainViewDelegate& delegate, Steinberg::FUnknown* owner)
     : Steinberg::CPluginView(), delegate_(delegate), owner_(owner) {
