@@ -58,3 +58,12 @@ regular PowerShell session. The updated runner detects:
 It prints the actual executable selected. If it still fails, open
 Developer PowerShell for Visual Studio and run cmake --version, or select
 C++ CMake tools for Windows in Visual Studio Installer.
+
+
+## User-measured baseline (November 13, 2026)
+
+See [the Ryzen gain benchmark record](../../../docs/SKELLNATIVE_RYZEN_BASELINE_2026-11-13.md)
+for the screenshot-transcribed nine-case test with clear limitations.
+Run `python -m tools.summarize_gain_compare path/to/SkellNative_JUCE_Gain_Comparison.csv`
+to validate and summarize a new local result. The next priority is full-VST3
+host and GUI profiling, not more unmeasured gain SIMD tuning.
