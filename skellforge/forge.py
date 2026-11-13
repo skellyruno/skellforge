@@ -220,8 +220,29 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
-    if not any(p.is_file() and p.suffix.lower() == ".vst3" for p in bundle.rglob("*")):
-        raise ForgeError("VST3 bundle contains no VST3 binary")
+    binaries = [p for p in bundle.rglob("*") if p.is_file() and p.suffix.lower() == ".vst3"]
+    if len(binaries) != 1:
+        raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
+    binary = binaries[0]
+    if binary.relative_to(bundle).parts[:2] != ("Contents", "x86_64-win"):
+        raise ForgeError("VST3 binary must be inside Contents/x86_64-win")
+    # Reject arbitrary text files and 32-bit PE executables masquerading as VST3s.
+    # This is a structural sanity check, not a substitute for Steinberg validation.
+    with binary.open("rb") as stream:
+        header = stream.read(4096)
+    if len(header) < 0x40 or header[:2] != b"MZ":
+        raise ForgeError("VST3 binary is not a Windows PE file (missing MZ header)")
+    pe_offset = int.from_bytes(header[0x3c:0x40], "little")
+    if pe_offset < 0x40 or pe_offset + 26 > len(header):
+        raise ForgeError("VST3 binary has an invalid or unsupported PE header offset")
+    if header[pe_offset:pe_offset + 4] != b"PE\x00\x00":
+        raise ForgeError("VST3 binary has no PE signature")
+    machine = int.from_bytes(header[pe_offset + 4:pe_offset + 6], "little")
+    optional_size = int.from_bytes(header[pe_offset + 20:pe_offset + 22], "little")
+    if machine != 0x8664 or optional_size < 2 or pe_offset + 24 + optional_size > len(header):
+        raise ForgeError("VST3 binary is not a supported Windows x64 PE image")
+    if header[pe_offset + 24:pe_offset + 26] != b"\x0b\x02":
+        raise ForgeError("VST3 binary must use the PE32+ x64 format")
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")

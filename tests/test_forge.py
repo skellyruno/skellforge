@@ -94,12 +94,37 @@ class ForgeTests(unittest.TestCase):
         with self.assertRaisesRegex(ForgeError, "No build"):
             package_project(self.project)
 
+    @staticmethod
+    def pe64_fixture(machine=0x8664, magic=0x20b):
+        """Minimal PE-shaped test fixture; never a runnable or distributable DLL."""
+        image = bytearray(512)
+        image[:2] = b"MZ"
+        image[0x3c:0x40] = (0x80).to_bytes(4, "little")
+        image[0x80:0x84] = b"PE\x00\x00"
+        image[0x84:0x86] = machine.to_bytes(2, "little")
+        image[0x94:0x96] = (0xf0).to_bytes(2, "little")
+        image[0x98:0x9a] = magic.to_bytes(2, "little")
+        return bytes(image)
+
+    def test_package_rejects_fake_and_wrong_architecture_binaries(self):
+        self.make()
+        bundle = self.project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3"
+        binary = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
+        binary.parent.mkdir(parents=True)
+        for payload in (b"fake VST3", self.pe64_fixture(machine=0x14c),
+                        self.pe64_fixture(magic=0x10b)):
+            with self.subTest(payload=payload[:12]):
+                binary.write_bytes(payload)
+                with self.assertRaisesRegex(ForgeError, "PE|x64"):
+                    package_project(self.project)
+        self.assertFalse((self.project / "SkellForge-SkellPulse-Windows-VST3.zip").exists())
+
     def test_package_exact_bundle_and_verify_zip(self):
         self.make()
         bundle = self.project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3"
         binary = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
         binary.parent.mkdir(parents=True)
-        binary.write_bytes(b"example VST3 signature surrogate - not a distributable binary")
+        binary.write_bytes(self.pe64_fixture())
         output = package_project(self.project)
         with zipfile.ZipFile(output) as archive:
             self.assertEqual(archive.namelist(), ["Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3"])
