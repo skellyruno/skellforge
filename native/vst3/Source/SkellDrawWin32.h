@@ -22,6 +22,17 @@ public:
     virtual void endGain() noexcept = 0;
 };
 
+// UI-thread-only counters, enabled in the Windows profiling smoke target.
+// The shipping VST3 leaves SKELLDRAW_PROFILE undefined: no clock calls.
+struct UiProfileStats {
+    std::uint64_t timerTicks=0;
+    std::uint64_t redrawRequests=0;
+    std::uint64_t paintCalls=0;
+    std::uint64_t backBufferCreates=0;
+    double totalPaintMicroseconds=0.0;
+    double maxPaintMicroseconds=0.0;
+};
+
 class SkellDrawView final : public Steinberg::CPluginView {
 public:
     SkellDrawView(GainViewDelegate& delegate, Steinberg::FUnknown* owner);
@@ -33,6 +44,7 @@ public:
     Steinberg::tresult PLUGIN_API canResize() override { return Steinberg::kResultTrue; }
     Steinberg::tresult PLUGIN_API checkSizeConstraint(Steinberg::ViewRect* rect) override;
     Steinberg::tresult PLUGIN_API onWheel(float distance) override;
+    UiProfileStats profileStats() const noexcept { return profile_; }
 
 private:
     static LRESULT CALLBACK windowProc(HWND window, UINT message, WPARAM w, LPARAM l);
@@ -55,6 +67,7 @@ private:
     int dragStartY_ = 0;
     float dragStartGain_ = 0.5f;
     float lastPaintGain_ = -1.0f;
+    UiProfileStats profile_{};
     skelldraw::OutputMeter meter_;
     HDC backDc_ = nullptr;
     HBITMAP backBitmap_ = nullptr;
