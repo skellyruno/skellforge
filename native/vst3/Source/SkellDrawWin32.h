@@ -7,6 +7,7 @@
 #endif
 #include <windows.h>
 #include <cstdint>
+#include <SkellDraw/Components.h>
 #include "public.sdk/source/common/pluginview.h"
 
 namespace Skelly::NativeGain {
@@ -15,6 +16,7 @@ class GainViewDelegate {
 public:
     virtual ~GainViewDelegate() = default;
     virtual float getGain() const noexcept = 0;
+    virtual float getPeak() const noexcept = 0; // read-only host output level
     virtual void beginGain() noexcept = 0;
     virtual void updateGain(float value) noexcept = 0;
     virtual void endGain() noexcept = 0;
@@ -42,6 +44,8 @@ private:
     void adjust(float step) noexcept;
     void redraw() noexcept;
     void updateTimer() noexcept;
+    bool prepareBackBuffer(HDC dc,int width,int height) noexcept;
+    void releaseBackBuffer() noexcept;
 
     GainViewDelegate& delegate_;
     Steinberg::FUnknown* owner_ = nullptr;
@@ -51,6 +55,12 @@ private:
     int dragStartY_ = 0;
     float dragStartGain_ = 0.5f;
     float lastPaintGain_ = -1.0f;
+    skelldraw::OutputMeter meter_;
+    HDC backDc_ = nullptr;
+    HBITMAP backBitmap_ = nullptr;
+    HGDIOBJ backOldBitmap_ = nullptr;
+    int backWidth_ = 0;
+    int backHeight_ = 0;
 };
 
 } // namespace Skelly::NativeGain

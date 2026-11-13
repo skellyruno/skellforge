@@ -23,6 +23,10 @@ public:
         if (result != kResultOk) return result;
         parameters.addParameter(STR16("Gain"), nullptr, 0, 0.5,
                                 ParameterInfo::kCanAutomate, kGainParam);
+        // Output level is an indicator only. Host automation & saved gain
+        // remain bound to kGainParam=1000 and the existing state format.
+        parameters.addParameter(STR16("Output Peak"), nullptr, 0, 0.0,
+                                ParameterInfo::kIsReadOnly, kOutputPeakParam);
         return kResultOk;
     }
 
@@ -41,6 +45,12 @@ public:
     }
 
 private:
+    float getPeak() const noexcept override {
+        const double value=const_cast<GainController*>(this)
+                                ->getParamNormalized(kOutputPeakParam);
+        return std::isfinite(value)
+            ? std::clamp(static_cast<float>(value),0.0f,1.0f) : 0.0f;
+    }
     float getGain() const noexcept override {
         const double value = const_cast<GainController*>(this)
                                  ->getParamNormalized(kGainParam);

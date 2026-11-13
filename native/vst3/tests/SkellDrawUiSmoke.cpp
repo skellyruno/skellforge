@@ -4,6 +4,7 @@
 #define NOMINMAX
 #endif
 #include "SkellDrawWin32.h"
+#include <SkellDraw/Win32Painter.h>
 #include <windows.h>
 #include <cmath>
 #include <cstdio>
@@ -14,6 +15,8 @@ using namespace Steinberg;
 namespace {
 struct DemoController final : GainViewDelegate {
     float gain=0.5f;
+    float peak=0.7f;
+    float getPeak() const noexcept override { return peak; }
     int beginCount=0, editCount=0, endCount=0;
     float getGain() const noexcept override { return gain; }
     void beginGain() noexcept override { ++beginCount; }
@@ -52,13 +55,19 @@ int main() {
     HWND child=FindWindowExW(parent,nullptr,L"STATIC",L"SkellNativeSkellDrawView_0_1");
     if (!verify(child!=nullptr && IsWindow(child),
                 "actual child window embedded")) { view.removed(); cleanup(); return 1; }
+    SendMessageW(child,WM_TIMER,17,0); // host peak value arrives at editor
     InvalidateRect(child,nullptr,FALSE);
     UpdateWindow(child);
     HDC dc=GetDC(child);
     const COLORREF top=dc ? GetPixel(dc,240,1) : CLR_INVALID;
     const COLORREF knobTop=dc ? GetPixel(dc,220,115) : CLR_INVALID;
+    const COLORREF outputBar=dc ? GetPixel(dc,346,215) : CLR_INVALID;
     if(dc) ReleaseDC(child,dc);
     if (!verify(top==RGB(141,255,68),"custom green painted top trim")) {
+        view.removed(); cleanup(); return 1;
+    }
+    if (!verify(outputBar==RGB(141,255,68),
+                "meter uses actual positive host-provided level")) {
         view.removed(); cleanup(); return 1;
     }
     // Regression: an old artificial specular highlight crossed the knob
@@ -95,6 +104,34 @@ int main() {
                 "wheel updates parameter")) { view.removed(); cleanup(); return 1; }
     if (!verify(controller.beginCount==controller.endCount,
                 "all edit gestures balanced")) { view.removed(); cleanup(); return 1; }
+
+    // Shared power is a standalone reusable control; it is NOT wired to
+    // Gain until Gain gains a persistent bypass parameter/host contract.
+    HDC screen=GetDC(parent);
+    HDC powerDC=screen?CreateCompatibleDC(screen):nullptr;
+    HBITMAP powerBitmap=(screen&&powerDC)
+        ?CreateCompatibleBitmap(screen,64,64):nullptr;
+    if(!verify(powerDC!=nullptr && powerBitmap!=nullptr,
+               "allocate reusable power control GDI test bitmap")) {
+        if(powerBitmap) DeleteObject(powerBitmap);
+        if(powerDC) DeleteDC(powerDC);
+        if(screen) ReleaseDC(parent,screen);
+        view.removed(); cleanup(); return 1;
+    }
+    const auto original=SelectObject(powerDC,powerBitmap);
+    skelldraw::win32::fill(powerDC,0,0,64,64,RGB(8,11,10));
+    skelldraw::win32::powerButton(powerDC,{10,10,36,36},true);
+    bool foundAccent=false;
+    for(int y=10;y<46 && !foundAccent;++y)
+        for(int x=10;x<46;++x)
+            if(GetPixel(powerDC,x,y)==RGB(141,255,68)) foundAccent=true;
+    SelectObject(powerDC,original);
+    DeleteObject(powerBitmap);
+    DeleteDC(powerDC);
+    ReleaseDC(parent,screen);
+    if(!verify(foundAccent,"reusable power button draws lit state")) {
+        view.removed(); cleanup(); return 1;
+    }
 
     if (!verify(view.removed()==kResultOk && !IsWindow(child),
                 "view removed and child window destroyed")) { cleanup(); return 1; }

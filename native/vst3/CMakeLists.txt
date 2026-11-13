@@ -39,6 +39,12 @@ target_include_directories(SkellNativeDSP INTERFACE
   "${CMAKE_CURRENT_LIST_DIR}/../include")
 target_compile_features(SkellNativeDSP INTERFACE cxx_std_17)
 
+# Shared host-neutral SkellDraw semantic controls + Win32 drawing adapter.
+add_library(SkellDrawControls INTERFACE)
+target_include_directories(SkellDrawControls INTERFACE
+  "${CMAKE_CURRENT_LIST_DIR}/../skelldraw/include")
+target_compile_features(SkellDrawControls INTERFACE cxx_std_17)
+
 smtg_add_vst3plugin(SkellNativeGain
   Source/NativeGainProcessor.cpp
   Source/NativeGainController.cpp
@@ -50,7 +56,7 @@ smtg_add_vst3plugin(SkellNativeGain
 )
 target_compile_features(SkellNativeGain PRIVATE cxx_std_17)
 target_include_directories(SkellNativeGain PRIVATE "${CMAKE_CURRENT_LIST_DIR}/Source")
-target_link_libraries(SkellNativeGain PRIVATE sdk SkellNativeDSP user32 gdi32)
+target_link_libraries(SkellNativeGain PRIVATE sdk SkellNativeDSP SkellDrawControls user32 gdi32)
 
 # Independent actual HWND attach, paint, resizing and input smoke.
 add_executable(SkellDrawUiSmoke
@@ -61,7 +67,7 @@ add_executable(SkellDrawUiSmoke
 target_compile_features(SkellDrawUiSmoke PRIVATE cxx_std_17)
 target_include_directories(SkellDrawUiSmoke PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/Source")
-target_link_libraries(SkellDrawUiSmoke PRIVATE sdk user32 gdi32)
+target_link_libraries(SkellDrawUiSmoke PRIVATE sdk SkellDrawControls user32 gdi32)
 
 
 # Host validator and real FL Studio session tests are separate release gates.
