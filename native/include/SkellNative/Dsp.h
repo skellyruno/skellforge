@@ -9,6 +9,14 @@
 #include <atomic>
 #include <cmath>
 #include <cstddef>
+#include <limits>
+
+#if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
+#define SKELLNATIVE_HAVE_SSE2 1
+#include <emmintrin.h>
+#else
+#define SKELLNATIVE_HAVE_SSE2 0
+#endif
 
 namespace skellnative {
 
@@ -42,11 +50,31 @@ public:
 
     bool process(Block block) const noexcept {
         if (!block.valid()) return false;
+
+        // Process independent samples four at a time on SSE2 hosts (all
+        // supported Windows x64 machines). A vector mask preserves the
+        // existing NaN/Inf -> zero contract without scalar isfinite() calls.
+        // The remaining 0..3 samples use the original scalar implementation.
+#if SKELLNATIVE_HAVE_SSE2
+        const __m128 gain4 = _mm_set1_ps(linear_);
+        const __m128 positiveMax = _mm_set1_ps(std::numeric_limits<float>::max());
+        const __m128 signBits = _mm_set1_ps(-0.0f);
+#endif
         for (std::size_t ch = 0; ch < block.channelCount; ++ch) {
-            for (std::size_t i = 0; i < block.frames; ++i) {
-                const float clean = finiteOrZero(block.channel[ch][i]);
-                block.channel[ch][i] = clean * linear_;
+            float* const samples = block.channel[ch];
+            std::size_t i = 0;
+#if SKELLNATIVE_HAVE_SSE2
+            for (; block.frames - i >= 4; i += 4) {
+                const __m128 input = _mm_loadu_ps(samples + i);
+                // <= FLT_MAX is false for both infinity and NaN.
+                const __m128 magnitude = _mm_andnot_ps(signBits, input);
+                const __m128 finiteMask = _mm_cmple_ps(magnitude, positiveMax);
+                const __m128 safeInput = _mm_and_ps(input, finiteMask);
+                _mm_storeu_ps(samples + i, _mm_mul_ps(safeInput, gain4));
             }
+#endif
+            for (; i < block.frames; ++i)
+                samples[i] = finiteOrZero(samples[i]) * linear_;
         }
         return true;
     }
