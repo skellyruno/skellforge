@@ -1,0 +1,47 @@
+name: SkellNative vs JUCE gain benchmark (Windows)
+on:
+  push:
+    branches: ["feature/skellnative-vs-juce-local-benchmark"]
+    paths:
+      - "native/benchmarks/juce_compare/**"
+      - "native/include/SkellNative/Dsp.h"
+      - ".github/workflows/skellnative-juce-benchmark.yml"
+  pull_request:
+    paths:
+      - "native/benchmarks/juce_compare/**"
+      - ".github/workflows/skellnative-juce-benchmark.yml"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gain-comparison-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  parity:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure pinned JUCE 8.0.12 on Windows
+        shell: pwsh
+        run: cmake -S native/benchmarks/juce_compare -B native/benchmarks/juce_compare/build -A x64
+      - name: Build both gain engines with the same MSVC compiler
+        shell: pwsh
+        run: cmake --build native/benchmarks/juce_compare/build --target SkellGainCompare --config Release --parallel 2
+      - name: Audio parity plus nine DSP-only comparisons
+        shell: pwsh
+        run: |
+          $exe = "native/benchmarks/juce_compare/build/Release/SkellGainCompare.exe"
+          if (-not (Test-Path $exe)) { throw "Benchmark binary missing" }
+          & $exe | Set-Content -Path native_gain_vs_juce.csv -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { throw "Parity or timing failed" }
+          $data = Import-Csv native_gain_vs_juce.csv
+          if ($data.Count -ne 9) { throw "Expected 9 comparisons" }
+          $data | Format-Table -AutoSize
+      - name: Upload informational timing CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellNative-JUCE-Gain-Comparison-Runner-Baseline
+          path: native_gain_vs_juce.csv
+          if-no-files-found: error
+          retention-days: 7
