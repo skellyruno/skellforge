@@ -235,13 +235,13 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     pe_offset = int.from_bytes(header[0x3c:0x40], "little")
     if pe_offset < 0x40 or pe_offset + 26 > len(header):
         raise ForgeError("VST3 binary has an invalid or unsupported PE header offset")
-    if header[pe_offset:pe_offset + 4] != b"PE\\0\\0":
+    if header[pe_offset:pe_offset + 4] != b"PE\x00\x00":
         raise ForgeError("VST3 binary has no PE signature")
     machine = int.from_bytes(header[pe_offset + 4:pe_offset + 6], "little")
     optional_size = int.from_bytes(header[pe_offset + 20:pe_offset + 22], "little")
     if machine != 0x8664 or optional_size < 2 or pe_offset + 24 + optional_size > len(header):
         raise ForgeError("VST3 binary is not a supported Windows x64 PE image")
-    if header[pe_offset + 24:pe_offset + 26] != b"\\x0b\\x02":
+    if header[pe_offset + 24:pe_offset + 26] != b"\x0b\x02":
         raise ForgeError("VST3 binary must use the PE32+ x64 format")
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
     if output.exists():
