@@ -186,6 +186,32 @@ int main() {
 
     if (!verify(view.removed()==kResultOk && !IsWindow(child),
                 "view removed and child window destroyed")) { cleanup(); return 1; }
+
+    // Twenty-five simulated DAW close/reopen cycles, creating and destroying
+    // an independent editor each time. GDI handles and WndProc must not leak
+    // across reused host windows (a common DAW unload/reload failure mode).
+    const DWORD beforeCycles=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+    for(int cycle=0;cycle<25;++cycle) {
+        SkellDrawView reopen(controller,nullptr);
+        const bool attached=reopen.attached(parent,kPlatformTypeHWND)==kResultOk;
+        const HWND reopened=FindWindowExW(parent,nullptr,L"STATIC",
+                                          L"SkellNativeSkellDrawView_0_1");
+        const bool created=attached && reopened && IsWindow(reopened);
+        if(created) {
+            SendMessageW(reopened,WM_TIMER,17,0);
+            UpdateWindow(reopened);
+        }
+        if(attached) reopen.removed();
+        if(!verify(created && (!reopened || !IsWindow(reopened)),
+                   "25 independent editor create/close cycles")) {
+            cleanup(); return 1;
+        }
+    }
+    const DWORD afterCycles=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+    if(!verify(afterCycles<=beforeCycles+2,
+               "25 editor lifecycles do not leak per-view GDI objects")) {
+        cleanup(); return 1;
+    }
     cleanup();
     const auto stats=view.profileStats();
     if (!verify(stats.paintCalls>0 &&
