@@ -24,18 +24,14 @@ struct Stereo {
         }
     }
 };
-void native(Stereo& p,std::size_t loops) {
-    skellnative::Gain gain;
+void native(Stereo& p,skellnative::Gain& gain,std::size_t loops) {
     skellnative::Block b{{{p.l.data(),p.r.data()}},2,p.l.size()};
     for(std::size_t i=0;i<loops;++i) {
         gain.setLinear((i&1u)?2.f:0.5f);
         if(!gain.process(b)) std::abort();
     }
 }
-void juceGain(Stereo& p,double rate,std::size_t loops) {
-    juce::dsp::Gain<float> gain;
-    gain.setRampDurationSeconds(0.0);
-    gain.prepare({rate,static_cast<juce::uint32>(p.l.size()),2u});
+void juceGain(Stereo& p,juce::dsp::Gain<float>& gain,std::size_t loops) {
     std::array<float*,2> channels{{p.l.data(),p.r.data()}};
     juce::dsp::AudioBlock<float> audio(channels.data(),2,p.l.size());
     juce::dsp::ProcessContextReplacing<float> context(audio);
@@ -46,13 +42,19 @@ void juceGain(Stereo& p,double rate,std::size_t loops) {
 }
 double measure(bool useJuce,double rate,std::size_t frames) {
     Stereo p(frames);
+    // Prepare both processors before timing; exclude JUCE prepare/reset
+    // and any associated allocation from the DSP-only measurements.
+    skellnative::Gain nativeGain;
+    juce::dsp::Gain<float> juceProcessor;
+    juceProcessor.setRampDurationSeconds(0.0);
+    juceProcessor.prepare({rate,static_cast<juce::uint32>(frames),2u});
     const std::size_t loops=(nSamples+frames-1)/frames;
     std::array<double,nTrials> samples{};
     for(std::size_t pass=0;pass<=nTrials;++pass) {
         p.reset();
         const auto start=Clock::now();
-        if(useJuce) juceGain(p,rate,loops);
-        else native(p,loops);
+        if(useJuce) juceGain(p,juceProcessor,loops);
+        else native(p,nativeGain,loops);
         const auto finish=Clock::now();
         if(pass) samples[pass-1]=
             std::chrono::duration<double,std::milli>(finish-start).count();
@@ -63,8 +65,12 @@ double measure(bool useJuce,double rate,std::size_t frames) {
 }
 double parity(double rate,std::size_t frames) {
     Stereo a(frames),b(a);
-    native(a,128);
-    juceGain(b,rate,128);
+    skellnative::Gain n;
+    juce::dsp::Gain<float> j;
+    j.setRampDurationSeconds(0.0);
+    j.prepare({rate,static_cast<juce::uint32>(frames),2u});
+    native(a,n,128);
+    juceGain(b,j,128);
     double worst=0.0;
     for(std::size_t i=0;i<frames;++i) {
         worst=std::max(worst,std::abs(static_cast<double>(a.l[i])-b.l[i]));
