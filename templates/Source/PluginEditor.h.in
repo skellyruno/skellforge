@@ -10,8 +10,8 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 private:
-    struct SkullHitArea final : juce::Button {
-        SkullHitArea() : juce::Button("Theme") {
+    struct ThemeButton final : juce::Button {
+        ThemeButton() : juce::Button("Theme") {
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
             setTooltip("Click to change the theme");
         }
@@ -28,7 +28,7 @@ private:
     };
     void changeSkin();
     skellcore::ui::StudioLookAndFeel skin_{skellcore::ui::StudioSkin::Obsidian};
-    SkullHitArea skull_;
+    ThemeButton skull_;
     juce::Label title_;
     juce::Label gainLabel_;
     juce::Slider gainKnob_;
