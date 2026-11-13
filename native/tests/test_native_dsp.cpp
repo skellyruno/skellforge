@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <cstring>
+#include <vector>
 
 using namespace skellnative;
 static constexpr double tau = 6.283185307179586;
@@ -218,7 +220,64 @@ static bool testSampleOffsetGainSpans() {
     return true;
 }
 
+static bool testFiniteSafeGainAcrossVectorBoundaries() {
+    // Check all SIMD lane positions and scalar tails, plus deliberately
+    // unaligned float addresses and mono/stereo channel configurations.
+    const std::array<std::size_t,15> lengths{{
+        0,1,2,3,4,5,6,7,8,9,15,16,17,63,65
+    }};
+    for (const std::size_t frames:lengths) {
+        for (std::size_t channels:{1u,2u}) {
+            std::vector<float> left(frames+2,123.0f);
+            std::vector<float> right(frames+2,-234.0f);
+            std::vector<float> expectedL(frames),expectedR(frames);
+            for (std::size_t i=0;i<frames;++i) {
+                float value=static_cast<float>(i*0.013-0.22);
+                switch (i%9) {
+                    case 0: value=std::numeric_limits<float>::quiet_NaN();break;
+                    case 1: value=std::numeric_limits<float>::infinity();break;
+                    case 2: value=-std::numeric_limits<float>::infinity();break;
+                    case 3: value=-0.0f;break;
+                    case 4: value=std::numeric_limits<float>::denorm_min();break;
+                    case 5: value=-std::numeric_limits<float>::denorm_min();break;
+                }
+                left[i+1]=value;
+                right[i+1]=-value;
+                expectedL[i]=finiteOrZero(left[i+1])*1.5f;
+                expectedR[i]=finiteOrZero(right[i+1])*1.5f;
+            }
+            Gain gain;
+            gain.setLinear(1.5f);
+            const Block audio{{{left.data()+1,right.data()+1}},channels,frames};
+            if (!gain.process(audio)) return false;
+            for (std::size_t i=0;i<frames;++i) {
+                if (std::memcmp(&left[i+1],&expectedL[i],sizeof(float))!=0)
+                    return false;
+                if (channels==2 &&
+                    std::memcmp(&right[i+1],&expectedR[i],sizeof(float))!=0)
+                    return false;
+                if (!std::isfinite(left[i+1])) return false;
+            }
+            if (left.front()!=123.0f || left.back()!=123.0f ||
+                right.front()!=-234.0f || right.back()!=-234.0f)
+                return false;
+        }
+    }
+    // Invalid buffers must be rejected as before.
+    Gain gain;
+    std::array<float,4> values{};
+    if (gain.process(Block{{{nullptr,values.data()}},2,4}))
+        return false;
+    if (!gain.process(Block{{{nullptr,nullptr}},2,0}))
+        return false;
+    return true;
+}
+
 int main() {
+    if (!testFiniteSafeGainAcrossVectorBoundaries()) {
+        std::fprintf(stderr, "SkellNative finite-safe vector gain parity failed\n");
+        return 1;
+    }
     if (!testSampleOffsetGainSpans()) {
         std::fprintf(stderr, "SkellNative sample-offset span processing regression failed\n");
         return 1;
