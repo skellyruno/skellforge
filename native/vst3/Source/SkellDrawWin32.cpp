@@ -139,9 +139,17 @@ void SkellDrawView::editEnd() noexcept {
     redraw();
 }
 void SkellDrawView::redraw() noexcept {
-    if (window_) InvalidateRect(window_,nullptr,FALSE);
+    if (window_) {
+#if defined(SKELLDRAW_PROFILE)
+        ++profile_.redrawRequests;
+#endif
+        InvalidateRect(window_,nullptr,FALSE);
+    }
 }
 void SkellDrawView::updateTimer() noexcept {
+#if defined(SKELLDRAW_PROFILE)
+    ++profile_.timerTicks;
+#endif
     const bool meterChanged=meter_.update(delegate_.getPeak(),0.04f);
     const float value=skelldraw::unit(delegate_.getGain(),0.5f);
     if (meterChanged || std::abs(lastPaintGain_-value)>0.001f) redraw();
@@ -175,6 +183,9 @@ bool SkellDrawView::prepareBackBuffer(HDC screen,int width,int height) noexcept 
     }
     backWidth_=width;
     backHeight_=height;
+#if defined(SKELLDRAW_PROFILE)
+    ++profile_.backBufferCreates;
+#endif
     return true;
 }
 LRESULT CALLBACK SkellDrawView::windowProc(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
@@ -221,6 +232,11 @@ LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
         : DefWindowProcW(hwnd,msg,w,l);
 }
 void SkellDrawView::paint(HWND hwnd) noexcept {
+#if defined(SKELLDRAW_PROFILE)
+    LARGE_INTEGER started{};
+    QueryPerformanceCounter(&started);
+    ++profile_.paintCalls;
+#endif
     PAINTSTRUCT paint{};
     HDC dc=BeginPaint(hwnd,&paint);
     if (!dc) return;
@@ -267,5 +283,16 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     SetMapMode(buffer,MM_TEXT); // Source bitmap pixels, not logical UI units.
     BitBlt(dc,0,0,width,height,buffer,0,0,SRCCOPY);
     EndPaint(hwnd,&paint);
+#if defined(SKELLDRAW_PROFILE)
+    LARGE_INTEGER finished{}, ticks{};
+    QueryPerformanceCounter(&finished);
+    QueryPerformanceFrequency(&ticks);
+    if (ticks.QuadPart > 0) {
+        const double micros=static_cast<double>(finished.QuadPart-started.QuadPart)
+            * 1000000.0/static_cast<double>(ticks.QuadPart);
+        profile_.totalPaintMicroseconds+=micros;
+        profile_.maxPaintMicroseconds=std::max(profile_.maxPaintMicroseconds,micros);
+    }
+#endif
 }
 } // namespace Skelly::NativeGain
