@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <SkellDraw/Components.h>
+#include <SkellDraw/Win32Painter.h>
 #include "public.sdk/source/common/pluginview.h"
 
 namespace Skelly::NativeGain {
@@ -69,6 +70,8 @@ private:
     float lastPaintGain_ = -1.0f;
     UiProfileStats profile_{};
     skelldraw::OutputMeter meter_;
+    skelldraw::win32::LabelFontCache labels_{};
+    skelldraw::win32::KnobPens knobPens_{};
     HDC backDc_ = nullptr;
     HBITMAP backBitmap_ = nullptr;
     HGDIOBJ backOldBitmap_ = nullptr;
