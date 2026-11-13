@@ -158,6 +158,38 @@ public:
             cursor = at;
         }
         if (!processRange(cursor, data.numSamples)) return kResultFalse;
+
+        // Real output level, not a cosmetic animation. VST3 hosts can forward
+        // read-only output parameters to the editor. If the host provides no
+        // output queue, avoid the extra peak scan entirely.
+        if (data.outputParameterChanges) {
+            float maxPeak=0.0f;
+            for (int32 channel=0;channel<channels;++channel) {
+                if(float32) {
+                    const float* samples=output.channelBuffers32[channel];
+                    for(int32 i=0;i<data.numSamples;++i) {
+                        const float value=std::abs(samples[i]);
+                        maxPeak=std::max(maxPeak,std::isfinite(value)?value:1.0f);
+                    }
+                } else {
+                    const double* samples=output.channelBuffers64[channel];
+                    for(int32 i=0;i<data.numSamples;++i) {
+                        const double value=std::abs(samples[i]);
+                        maxPeak=std::max(maxPeak,std::isfinite(value)
+                            ?static_cast<float>(std::min(value,1.0)):1.0f);
+                    }
+                }
+            }
+            int32 queueIndex=0;
+            auto* meterQueue=data.outputParameterChanges->addParameterData(
+                kOutputPeakParam,queueIndex);
+            if(meterQueue) {
+                int32 eventIndex=0;
+                meterQueue->addPoint(data.numSamples-1,
+                                     std::clamp(static_cast<double>(maxPeak),0.0,1.0),
+                                     eventIndex);
+            }
+        }
         return kResultOk;
     }
 
