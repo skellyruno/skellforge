@@ -14,8 +14,9 @@ if($JucePath -ne "") {
 if($LASTEXITCODE -ne 0) { throw "CMake configuration failed" }
 & cmake --build $build --target SkellGainCompare --config Release --parallel 2
 if($LASTEXITCODE -ne 0) { throw "Benchmark compilation failed" }
-$exe=Join-Path $build "Release/SkellGainCompare.exe"
-if(-not (Test-Path $exe)) { throw "Compiled benchmark missing" }
+$matching=@(Get-ChildItem -Path $build -Filter "SkellGainCompare.exe" -File -Recurse)
+if($matching.Count -ne 1) { throw "Expected one compiled SkellGainCompare.exe; found $($matching.Count)" }
+$exe=$matching[0].FullName
 if($OutputPath -eq "") {
     $dest=Join-Path $env:USERPROFILE "Desktop"
     if(-not (Test-Path $dest)) { $dest=(Get-Location).Path }

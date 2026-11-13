@@ -31,8 +31,9 @@ jobs:
       - name: Audio parity plus nine DSP-only comparisons
         shell: pwsh
         run: |
-          $exe = "native/benchmarks/juce_compare/build/Release/SkellGainCompare.exe"
-          if (-not (Test-Path $exe)) { throw "Benchmark binary missing" }
+          $match = @(Get-ChildItem "native/benchmarks/juce_compare/build" -Recurse -File -Filter "SkellGainCompare.exe")
+          if ($match.Count -ne 1) { throw "Expected one JUCE console executable, got $($match.Count)" }
+          $exe = $match[0].FullName
           & $exe | Set-Content -Path native_gain_vs_juce.csv -Encoding UTF8
           if ($LASTEXITCODE -ne 0) { throw "Parity or timing failed" }
           $data = Import-Csv native_gain_vs_juce.csv
