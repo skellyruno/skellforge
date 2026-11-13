@@ -34,10 +34,13 @@ SkellDraw output-meter model.
 **Host limitation:** VST3 hosts differ in whether/how they forward read-only
 output parameters from processor to controller/UI. An idle meter in FL Studio
 would require a different communication bridge; it must NEVER be animated
-from gain setting, audio assumptions, or fake random levels. That user-level
-meter check is still unverified. The UI smoke supplies explicit known meter
-values and tests the painting path; the official Steinberg validator tests
-general VST3 contracts but is not FL Studio.
+from gain setting, audio assumptions, or fake random levels. The user reported that the output meter responds during playback in
+FL Studio, along with working gain automation and compatibility with saved
+state from the earlier version (November 13, 2026). Those are MANUAL,
+USER-REPORTED acceptance observations; exact meter calibration, peak mapping,
+dropout behavior and cross-host compatibility have not been independently
+measured. The UI smoke separately tests painting with known values; the
+official Steinberg validator tests general VST3 contracts.
 
 ## Power button
 
@@ -58,8 +61,9 @@ Don't draw an inert button merely for decoration.
 
 ## Next
 
-1. FL Studio check: meter movement while audio plays, when playback stops,
-   project save/reopen, resize and close/reopen; no fake movement.
+1. FL Studio follow-up: verify output-peak accuracy and stopping/decay,
+   project save/reopen, resize and close/reopen, without fake movement.
+   Initial meter movement, automation and legacy state recall were user-reported as passing.
 2. Share the control palette through a proper SkellCore/SkellDraw bridge
    without imposing Skell Key's icon on other plugins.
 3. Add per-component presets and accessible keyboard/focus behaviors.
