@@ -37,6 +37,18 @@ jobs:
           cmake -S native -B native/build -DSKELLNATIVE_BUILD_TESTS=ON
           cmake --build native/build --config Release --parallel 2
           ctest --test-dir native/build -C Release --output-on-failure
+      - name: Parse read-only FL Studio CPU sampler with Windows PowerShell
+        shell: powershell
+        run: |
+          $tokens = $null
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            "$PWD/native/vst3/tools/Measure-FLStudioProcess.ps1",
+            [ref]$tokens, [ref]$errors) | Out-Null
+          if ($errors.Count -ne 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            throw "PowerShell 5.1 syntax check failed"
+          }
       - name: Configure pinned Steinberg VST3 SDK (JUCE disabled)
         shell: pwsh
         run: cmake -S native/vst3 -B native/vst3/build -A x64

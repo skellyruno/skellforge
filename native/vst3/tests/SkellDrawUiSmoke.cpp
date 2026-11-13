@@ -77,6 +77,50 @@ int main() {
         view.removed(); cleanup(); return 1;
     }
 
+    // The 40 ms timer polls the parameter and real meter, but an unchanged
+    // value must not trigger extra WM_PAINT (a major idle CPU cause).
+    const auto stable=view.profileStats();
+    if (!verify(stable.paintCalls>0 && stable.backBufferCreates==1,
+                "first paint created exactly one backing bitmap")) {
+        view.removed(); cleanup(); return 1;
+    }
+    const DWORD gdiWarm=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+    for(int tick=0;tick<100;++tick)
+        SendMessageW(child,WM_TIMER,17,0);
+    UpdateWindow(child);
+    const auto idle=view.profileStats();
+    if (!verify(idle.timerTicks==stable.timerTicks+100 &&
+                idle.paintCalls==stable.paintCalls &&
+                idle.redrawRequests==stable.redrawRequests,
+                "100 unchanged meter/knob timer ticks cause ZERO redraws")) {
+        view.removed(); cleanup(); return 1;
+    }
+
+    // Forced repaints must recycle cached GDI fonts, knob pens and bitmap.
+    for(int frame=0;frame<40;++frame) {
+        InvalidateRect(child,nullptr,FALSE);
+        UpdateWindow(child);
+    }
+    const auto warmed=view.profileStats();
+    const DWORD gdiAfter=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+    if (!verify(warmed.paintCalls==idle.paintCalls+40 &&
+                warmed.backBufferCreates==idle.backBufferCreates &&
+                gdiAfter<=gdiWarm+2,
+                "40 repaints reuse GDI resources without handle growth")) {
+        view.removed(); cleanup(); return 1;
+    }
+
+    // New audio peak MUST request painting; no random or gain-derived meter.
+    controller.peak=0.11f;
+    SendMessageW(child,WM_TIMER,17,0);
+    UpdateWindow(child);
+    const auto changed=view.profileStats();
+    if (!verify(changed.redrawRequests>idle.redrawRequests &&
+                changed.paintCalls>warmed.paintCalls,
+                "real output-peak change triggers repaint")) {
+        view.removed(); cleanup(); return 1;
+    }
+
     ViewRect constraint(0,0,700,330);
     if (!verify(view.checkSizeConstraint(&constraint)==kResultTrue
                 && constraint.getWidth()==700 && constraint.getHeight()==437,
@@ -87,6 +131,13 @@ int main() {
     GetClientRect(child,&childRect);
     if (!verify(childRect.right==700 && childRect.bottom==437,
                 "platform HWND resized with host")) { view.removed(); cleanup(); return 1; }
+    UpdateWindow(child);
+    const auto resized=view.profileStats();
+    if (!verify(resized.backBufferCreates>=2,
+                "resizing recreates the offscreen bitmap exactly when needed")) {
+        view.removed(); cleanup(); return 1;
+    }
+
     // Coordinates scaled from logical 480x300 to new 700x437 window.
     const int mx=237*700/480, my=155*437/300;
     SendMessageW(child,WM_LBUTTONDOWN,MK_LBUTTON,MAKELPARAM(mx,my));
@@ -135,7 +186,46 @@ int main() {
 
     if (!verify(view.removed()==kResultOk && !IsWindow(child),
                 "view removed and child window destroyed")) { cleanup(); return 1; }
+
+    // Twenty-five simulated DAW close/reopen cycles, creating and destroying
+    // an independent editor each time. GDI handles and WndProc must not leak
+    // across reused host windows (a common DAW unload/reload failure mode).
+    const DWORD beforeCycles=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+    for(int cycle=0;cycle<25;++cycle) {
+        SkellDrawView reopen(controller,nullptr);
+        const bool attached=reopen.attached(parent,kPlatformTypeHWND)==kResultOk;
+        const HWND reopened=FindWindowExW(parent,nullptr,L"STATIC",
+                                          L"SkellNativeSkellDrawView_0_1");
+        const bool created=attached && reopened && IsWindow(reopened);
+        if(created) {
+            SendMessageW(reopened,WM_TIMER,17,0);
+            UpdateWindow(reopened);
+        }
+        if(attached) reopen.removed();
+        if(!verify(created && (!reopened || !IsWindow(reopened)),
+                   "25 independent editor create/close cycles")) {
+            cleanup(); return 1;
+        }
+    }
+    const DWORD afterCycles=GetGuiResources(GetCurrentProcess(),GR_GDIOBJECTS);
+    if(!verify(afterCycles<=beforeCycles+2,
+               "25 editor lifecycles do not leak per-view GDI objects")) {
+        cleanup(); return 1;
+    }
     cleanup();
+    const auto stats=view.profileStats();
+    if (!verify(stats.paintCalls>0 &&
+                stats.totalPaintMicroseconds>0.0 &&
+                stats.maxPaintMicroseconds>0.0,
+                "high-resolution paint profiler records actual GDI time")) return 1;
+    std::printf("SKELLDRAW_UI_PROFILE,paint_calls=%llu,redraws=%llu,timer_ticks=%llu,"
+                "backbuffer_creates=%llu,mean_paint_us=%.2f,max_paint_us=%.2f\n",
+                static_cast<unsigned long long>(stats.paintCalls),
+                static_cast<unsigned long long>(stats.redrawRequests),
+                static_cast<unsigned long long>(stats.timerTicks),
+                static_cast<unsigned long long>(stats.backBufferCreates),
+                stats.totalPaintMicroseconds/static_cast<double>(stats.paintCalls),
+                stats.maxPaintMicroseconds);
     std::puts("PASS: SkellDraw native Win32 attach, paint, resize, drag, reset and wheel");
     return 0;
 }

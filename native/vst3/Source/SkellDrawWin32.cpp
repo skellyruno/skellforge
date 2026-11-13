@@ -25,7 +25,6 @@ const COLORREF kGreen=skelldraw::win32::color(kTheme.accent);
 const COLORREF kMuted=skelldraw::win32::color(kTheme.muted);
 using skelldraw::win32::fill;
 using skelldraw::win32::line;
-using skelldraw::win32::label;
 bool isKnob(int x,int y) noexcept {
     return skelldraw::Layout::knob.contains({x,y});
 }
@@ -139,9 +138,17 @@ void SkellDrawView::editEnd() noexcept {
     redraw();
 }
 void SkellDrawView::redraw() noexcept {
-    if (window_) InvalidateRect(window_,nullptr,FALSE);
+    if (window_) {
+#if defined(SKELLDRAW_PROFILE)
+        ++profile_.redrawRequests;
+#endif
+        InvalidateRect(window_,nullptr,FALSE);
+    }
 }
 void SkellDrawView::updateTimer() noexcept {
+#if defined(SKELLDRAW_PROFILE)
+    ++profile_.timerTicks;
+#endif
     const bool meterChanged=meter_.update(delegate_.getPeak(),0.04f);
     const float value=skelldraw::unit(delegate_.getGain(),0.5f);
     if (meterChanged || std::abs(lastPaintGain_-value)>0.001f) redraw();
@@ -175,6 +182,9 @@ bool SkellDrawView::prepareBackBuffer(HDC screen,int width,int height) noexcept 
     }
     backWidth_=width;
     backHeight_=height;
+#if defined(SKELLDRAW_PROFILE)
+    ++profile_.backBufferCreates;
+#endif
     return true;
 }
 LRESULT CALLBACK SkellDrawView::windowProc(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
@@ -221,6 +231,11 @@ LRESULT SkellDrawView::dispatch(HWND hwnd,UINT msg,WPARAM w,LPARAM l) {
         : DefWindowProcW(hwnd,msg,w,l);
 }
 void SkellDrawView::paint(HWND hwnd) noexcept {
+#if defined(SKELLDRAW_PROFILE)
+    LARGE_INTEGER started{};
+    QueryPerformanceCounter(&started);
+    ++profile_.paintCalls;
+#endif
     PAINTSTRUCT paint{};
     HDC dc=BeginPaint(hwnd,&paint);
     if (!dc) return;
@@ -240,32 +255,43 @@ void SkellDrawView::paint(HWND hwnd) noexcept {
     line(buffer,18,24,462,24,RGB(57,77,64));
     line(buffer,18,274,462,274,RGB(34,49,38));
     fill(buffer,28,34,6,21,kGreen);
-    label(buffer,L"SKELL",26,FW_BOLD,45,30,83,33,RGB(241,246,240),DT_LEFT);
-    label(buffer,L"NATIVE",26,FW_BOLD,127,30,111,33,kGreen,DT_LEFT);
-    label(buffer,L"GAIN / SKELLDRAW v0.1",11,FW_NORMAL,284,34,164,28,kMuted,DT_RIGHT);
+    labels_.draw(buffer,L"SKELL",26,FW_BOLD,45,30,83,33,RGB(241,246,240),DT_LEFT);
+    labels_.draw(buffer,L"NATIVE",26,FW_BOLD,127,30,111,33,kGreen,DT_LEFT);
+    labels_.draw(buffer,L"GAIN / SKELLDRAW v0.1",11,FW_NORMAL,284,34,164,28,kMuted,DT_RIGHT);
 
     // Reusable SkellDraw knob; no flat highlight or plugin-specific skull.
     const float value=skelldraw::unit(delegate_.getGain(),0.5f);
     lastPaintGain_=value;
-    skelldraw::win32::knob(buffer,value,kGreen);
+    skelldraw::win32::knob(buffer,value,kGreen,&knobPens_);
 
     fill(buffer,339,103,104,84,RGB(8,15,11));
     line(buffer,339,103,443,103,RGB(65,87,68));
     wchar_t level[48]{};
     const float amplitude=value*2.0f;
     std::swprintf(level,48,L"%.2fx",static_cast<double>(amplitude));
-    label(buffer,level,26,FW_BOLD,339,111,104,43,kGreen);
-    label(buffer,L"LINEAR GAIN",10,FW_NORMAL,343,156,95,17,kMuted);
-    label(buffer,L"OUTPUT",10,FW_NORMAL,345,187,94,16,kMuted);
+    labels_.draw(buffer,level,26,FW_BOLD,339,111,104,43,kGreen);
+    labels_.draw(buffer,L"LINEAR GAIN",10,FW_NORMAL,343,156,95,17,kMuted);
+    labels_.draw(buffer,L"OUTPUT",10,FW_NORMAL,345,187,94,16,kMuted);
     skelldraw::win32::outputMeter(buffer,skelldraw::Layout::meter,
                                   meter_.level(),kGreen);
-    label(buffer,L"DRAG / SCROLL",11,FW_NORMAL,35,206,128,22,kMuted,DT_LEFT);
-    label(buffer,L"DOUBLE-CLICK TO RESET",10,FW_NORMAL,35,222,168,22,kMuted,DT_LEFT);
-    label(buffer,L"SKELL AUDIO  |  NO JUCE",11,FW_NORMAL,31,254,416,16,RGB(116,139,120),DT_LEFT);
-    label(buffer,L"WINDOWS VST3",10,FW_NORMAL,342,254,100,16,kMuted,DT_RIGHT);
+    labels_.draw(buffer,L"DRAG / SCROLL",11,FW_NORMAL,35,206,128,22,kMuted,DT_LEFT);
+    labels_.draw(buffer,L"DOUBLE-CLICK TO RESET",10,FW_NORMAL,35,222,168,22,kMuted,DT_LEFT);
+    labels_.draw(buffer,L"SKELL AUDIO  |  NO JUCE",11,FW_NORMAL,31,254,416,16,RGB(116,139,120),DT_LEFT);
+    labels_.draw(buffer,L"WINDOWS VST3",10,FW_NORMAL,342,254,100,16,kMuted,DT_RIGHT);
 
     SetMapMode(buffer,MM_TEXT); // Source bitmap pixels, not logical UI units.
     BitBlt(dc,0,0,width,height,buffer,0,0,SRCCOPY);
     EndPaint(hwnd,&paint);
+#if defined(SKELLDRAW_PROFILE)
+    LARGE_INTEGER finished{}, ticks{};
+    QueryPerformanceCounter(&finished);
+    QueryPerformanceFrequency(&ticks);
+    if (ticks.QuadPart > 0) {
+        const double micros=static_cast<double>(finished.QuadPart-started.QuadPart)
+            * 1000000.0/static_cast<double>(ticks.QuadPart);
+        profile_.totalPaintMicroseconds+=micros;
+        profile_.maxPaintMicroseconds=std::max(profile_.maxPaintMicroseconds,micros);
+    }
+#endif
 }
 } // namespace Skelly::NativeGain

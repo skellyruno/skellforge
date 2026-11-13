@@ -7,6 +7,7 @@
 #include <SkellDraw/Components.h>
 #include <windows.h>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 
@@ -58,8 +59,96 @@ inline void label(HDC dc,const wchar_t* content,int fontSize,int weight,
     DeleteObject(font);
 }
 
+// Caches label fonts per editor instead of creating/deleting GDI font
+// handles eight times on every meter repaint. No allocation after warmup.
+// Each Win32 view owns its own cache; never share across DLL unloads.
+class LabelFontCache {
+public:
+    LabelFontCache()=default;
+    LabelFontCache(const LabelFontCache&)=delete;
+    LabelFontCache& operator=(const LabelFontCache&)=delete;
+    ~LabelFontCache() noexcept {
+        for (const auto& slot:slots_)
+            if (slot.font) DeleteObject(slot.font);
+    }
+    void draw(HDC dc,const wchar_t* content,int fontSize,int weight,
+              int x,int y,int w,int h,COLORREF ink,
+              UINT alignment=DT_CENTER) noexcept {
+        HFONT font=findFont(fontSize,weight);
+        if(!font) {
+            label(dc,content,fontSize,weight,x,y,w,h,ink,alignment);
+            return;
+        }
+        const HGDIOBJ old=SelectObject(dc,font);
+        if(!old || old==HGDI_ERROR) return;
+        SetBkMode(dc,TRANSPARENT);
+        SetTextColor(dc,ink);
+        RECT rect{x,y,x+w,y+h};
+        DrawTextW(dc,content,-1,&rect,
+                  DT_SINGLELINE|DT_VCENTER|DT_NOPREFIX|alignment);
+        SelectObject(dc,old);
+    }
+private:
+    struct Slot { int size=0; int weight=0; HFONT font=nullptr; };
+    std::array<Slot,6> slots_{};
+    HFONT findFont(int size,int weight) noexcept {
+        for(const auto& slot:slots_)
+            if(slot.font && slot.size==size && slot.weight==weight) return slot.font;
+        for(auto& slot:slots_) {
+            if(slot.font) continue;
+            slot.font=CreateFontW(-size,0,0,0,weight,FALSE,FALSE,FALSE,
+                DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY,DEFAULT_PITCH|FF_SWISS,L"Segoe UI");
+            if(slot.font) { slot.size=size; slot.weight=weight; }
+            return slot.font;
+        }
+        return nullptr;
+    }
+};
+
+// Hot path reuses three pen handles for 35 tick marks plus the indicator.
+// Color is supplied at construction for plugin-specific themes.
+class KnobPens {
+public:
+    explicit KnobPens(COLORREF accent=RGB(141,255,68)) noexcept {
+        bright_=CreatePen(PS_SOLID,3,accent);
+        dim_=CreatePen(PS_SOLID,1,RGB(59,76,65));
+        indicator_=CreatePen(PS_SOLID,4,accent);
+    }
+    KnobPens(const KnobPens&)=delete;
+    KnobPens& operator=(const KnobPens&)=delete;
+    ~KnobPens() noexcept {
+        if(bright_) DeleteObject(bright_);
+        if(dim_) DeleteObject(dim_);
+        if(indicator_) DeleteObject(indicator_);
+    }
+    void drawTick(HDC dc,bool selected,int x0,int y0,int x1,int y1,
+                  COLORREF accent) const noexcept {
+        const HPEN pen=selected?bright_:dim_;
+        if(!pen) { line(dc,x0,y0,x1,y1,selected?accent:RGB(59,76,65),
+                       selected?3:1); return; }
+        const HGDIOBJ old=SelectObject(dc,pen);
+        MoveToEx(dc,x0,y0,nullptr);
+        LineTo(dc,x1,y1);
+        SelectObject(dc,old);
+    }
+    void drawIndicator(HDC dc,int x0,int y0,int x1,int y1,
+                       COLORREF accent) const noexcept {
+        if(!indicator_) { line(dc,x0,y0,x1,y1,accent,4); return; }
+        const HGDIOBJ old=SelectObject(dc,indicator_);
+        MoveToEx(dc,x0,y0,nullptr);
+        LineTo(dc,x1,y1);
+        SelectObject(dc,old);
+    }
+private:
+    HPEN bright_=nullptr;
+    HPEN dim_=nullptr;
+    HPEN indicator_=nullptr;
+};
+
 // Preserves the v0.1 metallic knob shape: no artificial horizontal highlight.
-inline void knob(HDC dc,float normalized,COLORREF accent=RGB(141,255,68)) noexcept {
+inline void knob(HDC dc,float normalized,COLORREF accent=RGB(141,255,68),
+                 const KnobPens* pens=nullptr) noexcept {
     normalized=unit(normalized,Knob::defaultValue);
     ellipse(dc,161,79,313,231,RGB(30,39,33),RGB(9,14,11),3);
     ellipse(dc,169,87,305,223,RGB(56,67,61),RGB(122,134,125),2);
@@ -74,11 +163,14 @@ inline void knob(HDC dc,float normalized,COLORREF accent=RGB(141,255,68)) noexce
         const int x1=237+static_cast<int>(85*std::cos(a));
         const int y1=155+static_cast<int>(85*std::sin(a));
         const bool selected=step<=static_cast<int>(normalized*34.f);
-        line(dc,x0,y0,x1,y1,selected?accent:RGB(59,76,65),selected?3:1);
+        if(pens) pens->drawTick(dc,selected,x0,y0,x1,y1,accent);
+        else line(dc,x0,y0,x1,y1,selected?accent:RGB(59,76,65),selected?3:1);
     }
     const float a=(140.f+260.f*normalized)*pi/180.f;
-    line(dc,237,155,237+static_cast<int>(36*std::cos(a)),
-         155+static_cast<int>(36*std::sin(a)),accent,4);
+    const int tipX=237+static_cast<int>(36*std::cos(a));
+    const int tipY=155+static_cast<int>(36*std::sin(a));
+    if(pens) pens->drawIndicator(dc,237,155,tipX,tipY,accent);
+    else line(dc,237,155,tipX,tipY,accent,4);
 }
 
 // Opt-in, actual state-driven power button. Never paint an interactive power
