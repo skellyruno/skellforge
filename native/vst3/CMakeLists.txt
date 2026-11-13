@@ -65,6 +65,9 @@ add_executable(SkellDrawUiSmoke
   Source/SkellDrawWin32.cpp
 )
 target_compile_features(SkellDrawUiSmoke PRIVATE cxx_std_17)
+# Only profiling smoke pays for high-resolution timers and counter updates.
+# The real SkellNativeGain VST3 deliberately omits this definition.
+target_compile_definitions(SkellDrawUiSmoke PRIVATE SKELLDRAW_PROFILE=1)
 target_include_directories(SkellDrawUiSmoke PRIVATE
   "${CMAKE_CURRENT_LIST_DIR}/Source")
 target_link_libraries(SkellDrawUiSmoke PRIVATE sdk SkellDrawControls user32 gdi32)
