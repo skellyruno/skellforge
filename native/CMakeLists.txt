@@ -19,6 +19,22 @@ if(SKELLNATIVE_BUILD_TESTS)
     target_compile_options(SkellNativeDspTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME SkellNativeDspTests COMMAND SkellNativeDspTests)
+
+  # Compile the same numerical tests with SIMD explicitly disabled.
+  # This guards the scalar fallback for ARM/older x86 and provides a
+  # compile-time reference to the portable finite-sanitization semantics.
+  add_executable(SkellNativeDspScalarTests tests/test_native_dsp.cpp)
+  target_link_libraries(SkellNativeDspScalarTests PRIVATE SkellNativeDSP)
+  target_compile_features(SkellNativeDspScalarTests PRIVATE cxx_std_17)
+  target_compile_definitions(SkellNativeDspScalarTests PRIVATE
+    SKELLNATIVE_DISABLE_SIMD=1)
+  if(MSVC)
+    target_compile_options(SkellNativeDspScalarTests PRIVATE /W4 /WX)
+  else()
+    target_compile_options(SkellNativeDspScalarTests PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME SkellNativeDspScalarTests COMMAND SkellNativeDspScalarTests)
 endif()
 
 # Benchmarks are opt-in and must never gate audio correctness by timing.

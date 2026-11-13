@@ -31,6 +31,31 @@ void native(Stereo& p,skellnative::Gain& gain,std::size_t loops) {
         if(!gain.process(b)) std::abort();
     }
 }
+// Faithful original pre-SIMD gain loop, used only as a benchmark reference.
+// Keep this explicit for meaningful old-vs-new on ONE machine/one compiler.
+class OriginalScalarGain {
+public:
+    void setLinear(float value) noexcept {
+        linear_ = skellnative::clampFinite(value,0.0f,4.0f,1.0f);
+    }
+    bool process(skellnative::Block block) const noexcept {
+        if (!block.valid()) return false;
+        for (std::size_t ch=0;ch<block.channelCount;++ch)
+            for (std::size_t i=0;i<block.frames;++i)
+                block.channel[ch][i] =
+                    skellnative::finiteOrZero(block.channel[ch][i])*linear_;
+        return true;
+    }
+private:
+    float linear_=1.0f;
+};
+void originalScalar(Stereo& p,OriginalScalarGain& gain,std::size_t loops) {
+    skellnative::Block b{{{p.l.data(),p.r.data()}},2,p.l.size()};
+    for (std::size_t i=0;i<loops;++i) {
+        gain.setLinear((i&1u)?2.f:0.5f);
+        if (!gain.process(b)) std::abort();
+    }
+}
 void juceGain(Stereo& p,juce::dsp::Gain<float>& gain,std::size_t loops) {
     std::array<float*,2> channels{{p.l.data(),p.r.data()}};
     juce::dsp::AudioBlock<float> audio(channels.data(),2,p.l.size());
@@ -40,11 +65,13 @@ void juceGain(Stereo& p,juce::dsp::Gain<float>& gain,std::size_t loops) {
         gain.process(context);
     }
 }
-double measure(bool useJuce,double rate,std::size_t frames) {
+enum class Backend { optimized, originalScalar, juce };
+double measure(Backend backend,double rate,std::size_t frames) {
     Stereo p(frames);
     // Prepare both processors before timing; exclude JUCE prepare/reset
     // and any associated allocation from the DSP-only measurements.
     skellnative::Gain nativeGain;
+    OriginalScalarGain previousGain;
     juce::dsp::Gain<float> juceProcessor;
     juceProcessor.setRampDurationSeconds(0.0);
     juceProcessor.prepare({rate,static_cast<juce::uint32>(frames),2u});
@@ -53,7 +80,8 @@ double measure(bool useJuce,double rate,std::size_t frames) {
     for(std::size_t pass=0;pass<=nTrials;++pass) {
         p.reset();
         const auto start=Clock::now();
-        if(useJuce) juceGain(p,juceProcessor,loops);
+        if(backend==Backend::juce) juceGain(p,juceProcessor,loops);
+        else if(backend==Backend::originalScalar) originalScalar(p,previousGain,loops);
         else native(p,nativeGain,loops);
         const auto finish=Clock::now();
         if(pass) samples[pass-1]=
@@ -64,23 +92,27 @@ double measure(bool useJuce,double rate,std::size_t frames) {
     return samples[nTrials/2];
 }
 double parity(double rate,std::size_t frames) {
-    Stereo a(frames),b(a);
+    Stereo a(frames),b(a),c(a);
     skellnative::Gain n;
+    OriginalScalarGain old;
     juce::dsp::Gain<float> j;
     j.setRampDurationSeconds(0.0);
     j.prepare({rate,static_cast<juce::uint32>(frames),2u});
     native(a,n,128);
+    originalScalar(c,old,128);
     juceGain(b,j,128);
     double worst=0.0;
     for(std::size_t i=0;i<frames;++i) {
         worst=std::max(worst,std::abs(static_cast<double>(a.l[i])-b.l[i]));
         worst=std::max(worst,std::abs(static_cast<double>(a.r[i])-b.r[i]));
+        worst=std::max(worst,std::abs(static_cast<double>(a.l[i])-c.l[i]));
+        worst=std::max(worst,std::abs(static_cast<double>(a.r[i])-c.r[i]));
     }
     return worst;
 }
 int main() {
     std::fprintf(stderr,"Equal-buffer DSP-only benchmark, not host CPU or plugin performance.\n");
-    std::puts("rate_hz,block_frames,native_ms,juce_ms,native_over_juce,max_error");
+    std::puts("rate_hz,block_frames,native_ms,juce_ms,native_over_juce,max_error,old_scalar_ms,old_scalar_over_native");
     for (double rate:{44100.,48000.,96000.})
         for (std::size_t frames:{64u,256u,1024u}) {
             const double worst=parity(rate,frames);
@@ -89,11 +121,13 @@ int main() {
                              rate,frames,worst);
                 return 1;
             }
-            const double a=measure(false,rate,frames);
-            const double b=measure(true,rate,frames);
-            if(!std::isfinite(a)||!std::isfinite(b)||a<=0.||b<=0.) return 1;
-            std::printf("%.0f,%zu,%.6f,%.6f,%.4f,%.9f\n",
-                        rate,frames,a,b,a/b,worst);
+            const double a=measure(Backend::optimized,rate,frames);
+            const double b=measure(Backend::juce,rate,frames);
+            const double c=measure(Backend::originalScalar,rate,frames);
+            if(!std::isfinite(a)||!std::isfinite(b)||!std::isfinite(c)||
+               a<=0.||b<=0.||c<=0.) return 1;
+            std::printf("%.0f,%zu,%.6f,%.6f,%.4f,%.9f,%.6f,%.4f\n",
+                        rate,frames,a,b,a/b,worst,c,c/a);
         }
     return 0;
 }

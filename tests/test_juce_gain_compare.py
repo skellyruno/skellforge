@@ -13,6 +13,11 @@ class JuceGainCompareTests(unittest.TestCase):
             self.assertIn(snippet,source)
         self.assertIn("GIT_TAG 8.0.12",cmake)
         self.assertIn("juce::juce_dsp",cmake)
+        self.assertIn("OriginalScalarGain",source)
+        self.assertIn("old_scalar_ms,old_scalar_over_native",source)
+        self.assertIn("Backend::optimized",source)
+        self.assertIn("Backend::originalScalar",source)
+        self.assertIn("originalScalar(c,old,128)",source)
         self.assertIn("/O2",cmake)
     def test_local_script_never_installs_plugins(self):
         script=(BASE/"Run-GainCompare.ps1").read_text(encoding="utf-8")
