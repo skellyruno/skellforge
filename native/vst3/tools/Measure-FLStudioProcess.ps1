@@ -14,7 +14,7 @@ param(
 )
 $ErrorActionPreference="Stop"
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    $desktop=[Environment]::GetFolderPath("Desktop")
+    $desktop=[Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
     if ([string]::IsNullOrWhiteSpace($desktop) -or -not (Test-Path $desktop)) {
         $desktop=(Get-Location).Path
     }
@@ -53,7 +53,9 @@ while($watch.Elapsed.TotalSeconds -lt $Seconds) {
     $deltaCpu=$cpu-$prevCpu
     if($deltaWall -gt 0 -and $deltaCpu -ge 0) {
         $percent=100.0*$deltaCpu/($deltaWall*$coreCount)
-        if([double]::IsFinite($percent)) { [void]$intervals.Add($percent) }
+        if(-not [double]::IsNaN($percent) -and -not [double]::IsInfinity($percent)) {
+            [void]$intervals.Add($percent)
+        }
     }
     $prevWall=$wall
     $prevCpu=$cpu
