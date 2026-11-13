@@ -1,5 +1,4 @@
 #include "PluginEditor.h"
-#include <SkellCore/SkullTheme.h>
 
 @@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
     @@TARGET@@AudioProcessor& processor)
@@ -45,8 +44,10 @@ void @@TARGET@@AudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(panel, 9.0f);
     g.setColour(palette.border);
     g.drawRoundedRectangle(panel, 9.0f, 1.1f);
-    // Existing shared skull-key mark, pending official master skull approval.
-    skellcore::ui::drawSkullKeyMark(g, 25.0f, 21.0f, palette.accent, palette.surface);
+    // Neutral theme affordance until each plugin supplies its own approved skull.
+    g.setColour(palette.accent);
+    g.setFont(juce::Font(juce::FontOptions(13.0f).withStyle("Bold")));
+    g.drawFittedText("THEME", 22, 17, 82, 38, juce::Justification::centred, 1);
     g.setColour(palette.secondary);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawFittedText("SKELLFORGE / VST3", 20, getHeight()-36,
