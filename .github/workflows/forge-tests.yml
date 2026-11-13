@@ -23,11 +23,13 @@ jobs:
       - name: Check Python package compilation
         run: python -m compileall -q skellforge tests tools
       - name: Configure independent SkellNative DSP (no JUCE)
-        run: cmake -S native -B native-build -DSKELLNATIVE_BUILD_TESTS=ON
+        run: cmake -S native -B native-build -DSKELLNATIVE_BUILD_TESTS=ON -DSKELLNATIVE_BUILD_BENCHMARKS=ON
       - name: Compile independent SkellNative DSP
         run: cmake --build native-build --config Release --parallel 2
       - name: Test JUCE-free DSP at multiple audio rates
         run: ctest --test-dir native-build -C Release --output-on-failure
+      - name: Print portable DSP benchmark baseline (non-gating timing)
+        run: ctest --test-dir native-build -C Release -R SkellNativeBenchmarkSmoke -V
       - name: Import desktop Studio module on Windows
         if: runner.os == 'Windows'
         run: python -c "import skellforge.studio_app; print('Desktop module imports')"
