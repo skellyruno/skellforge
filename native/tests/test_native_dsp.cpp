@@ -6,6 +6,8 @@
 #include <cmath>
 #include <cstdio>
 #include <limits>
+#include <cstring>
+#include <vector>
 
 using namespace skellnative;
 static constexpr double tau = 6.283185307179586;
@@ -174,7 +176,172 @@ static bool testStateSerialization() {
     return true;
 }
 
+static bool testSampleOffsetGainSpans() {
+    // Reference scalar processing and block-span processing must match,
+    // even for multiple parameter events at the same sample offset.
+    constexpr std::size_t count=256;
+    std::array<float,count> sourceL{},sourceR{},spansL{},spansR{};
+    for (std::size_t i=0; i<count; ++i) {
+        sourceL[i]=static_cast<float>(0.2*std::sin(6.283185307179586*i/13.0));
+        sourceR[i]=-0.6f*sourceL[i];
+    }
+    spansL=sourceL; spansR=sourceR;
+    const std::array<std::size_t,7> offsets{{0,1,17,17,64,127,255}};
+    const std::array<float,7> normalized{{0.5f,0.2f,0.8f,0.0f,1.0f,0.3f,0.5f}};
+    std::array<float,count> expectedL{},expectedR{};
+    float current=0.5f;
+    std::size_t event=0;
+    for (std::size_t i=0;i<count;++i) {
+        while (event<offsets.size() && offsets[event]==i)
+            current=normalized[event++];
+        expectedL[i]=sourceL[i]*current*2.0f;
+        expectedR[i]=sourceR[i]*current*2.0f;
+    }
+    Gain kernel;
+    current=0.5f;
+    std::size_t begin=0;
+    for (std::size_t i=0;i<offsets.size();++i) {
+        const auto end=offsets[i];
+        if (end>begin) {
+            kernel.setLinear(current*2.0f);
+            if (!kernel.process(block(spansL.data()+begin,spansR.data()+begin,end-begin)))
+                return false;
+        }
+        current=normalized[i];
+        begin=end;
+    }
+    kernel.setLinear(current*2.0f);
+    if (!kernel.process(block(spansL.data()+begin,spansR.data()+begin,count-begin)))
+        return false;
+    for (std::size_t i=0; i<count; ++i) {
+        if (std::abs(spansL[i]-expectedL[i])>2e-6f ||
+            std::abs(spansR[i]-expectedR[i])>2e-6f) return false;
+    }
+    return true;
+}
+
+static bool testFiniteSafeGainAcrossVectorBoundaries() {
+    // Check all SIMD lane positions and scalar tails, plus deliberately
+    // unaligned float addresses and mono/stereo channel configurations.
+    const std::array<std::size_t,15> lengths{{
+        0,1,2,3,4,5,6,7,8,9,15,16,17,63,65
+    }};
+    for (const std::size_t frames:lengths) {
+        for (std::size_t channels:{1u,2u}) {
+            std::vector<float> left(frames+2,123.0f);
+            std::vector<float> right(frames+2,-234.0f);
+            std::vector<float> expectedL(frames),expectedR(frames);
+            for (std::size_t i=0;i<frames;++i) {
+                float value=static_cast<float>(i*0.013-0.22);
+                switch (i%9) {
+                    case 0: value=std::numeric_limits<float>::quiet_NaN();break;
+                    case 1: value=std::numeric_limits<float>::infinity();break;
+                    case 2: value=-std::numeric_limits<float>::infinity();break;
+                    case 3: value=-0.0f;break;
+                    case 4: value=std::numeric_limits<float>::denorm_min();break;
+                    case 5: value=-std::numeric_limits<float>::denorm_min();break;
+                }
+                left[i+1]=value;
+                right[i+1]=-value;
+                expectedL[i]=finiteOrZero(left[i+1])*1.5f;
+                expectedR[i]=finiteOrZero(right[i+1])*1.5f;
+            }
+            Gain gain;
+            gain.setLinear(1.5f);
+            const Block audio{{{left.data()+1,right.data()+1}},channels,frames};
+            if (!gain.process(audio)) return false;
+            for (std::size_t i=0;i<frames;++i) {
+                if (std::memcmp(&left[i+1],&expectedL[i],sizeof(float))!=0)
+                    return false;
+                if (channels==2 &&
+                    std::memcmp(&right[i+1],&expectedR[i],sizeof(float))!=0)
+                    return false;
+                if (!std::isfinite(left[i+1])) return false;
+            }
+            if (left.front()!=123.0f || left.back()!=123.0f ||
+                right.front()!=-234.0f || right.back()!=-234.0f)
+                return false;
+        }
+    }
+    // Invalid buffers must be rejected as before.
+    Gain gain;
+    std::array<float,4> values{};
+    if (gain.process(Block{{{nullptr,values.data()}},2,4}))
+        return false;
+    if (!gain.process(Block{{{nullptr,nullptr}},2,0}))
+        return false;
+    return true;
+}
+
+static bool testFusedGainOutputMeterParity() {
+    // Exact output samples against non-metered gain and independent
+    // post-processing peak reference. Both SIMD and scalar-only builds run.
+    const std::array<std::size_t,10> lengths{{0,1,2,3,4,5,7,16,65,129}};
+    const std::array<float,5> linearGains{{0.f,0.5f,1.f,2.f,4.f}};
+    for (auto frames:lengths) {
+        for(std::size_t channels:{1u,2u}) {
+            for(float gainValue:linearGains) {
+                std::vector<float> inputL(frames+2,0.f),inputR(frames+2,0.f);
+                for(std::size_t i=0;i<frames;++i) {
+                    float sample=static_cast<float>(0.049*double(i)-0.8);
+                    switch (i%11) {
+                        case 0: sample=std::numeric_limits<float>::quiet_NaN();break;
+                        case 1: sample=std::numeric_limits<float>::infinity();break;
+                        case 2: sample=-std::numeric_limits<float>::infinity();break;
+                        case 3: sample=std::numeric_limits<float>::max();break;
+                        case 4: sample=-std::numeric_limits<float>::max();break;
+                        case 5: sample=std::numeric_limits<float>::denorm_min();break;
+                        case 6: sample=-0.0f;break;
+                    }
+                    inputL[i+1]=sample;
+                    inputR[i+1]=-sample;
+                }
+                auto expectedL=inputL,expectedR=inputR;
+                auto actualL=inputL,actualR=inputR;
+                Gain gain;
+                gain.setLinear(gainValue);
+                Block expected{{{expectedL.data()+1,expectedR.data()+1}},channels,frames};
+                Block actual{{{actualL.data()+1,actualR.data()+1}},channels,frames};
+                if(!gain.process(expected)) return false;
+                float fusedPeak=-1.0f;
+                if(!gain.processWithPeak(actual,fusedPeak)) return false;
+                float referencePeak=0.f;
+                for(std::size_t ch=0;ch<channels;++ch) {
+                    for(std::size_t i=0;i<frames;++i) {
+                        const float x=(ch==0 ? expectedL[i+1] : expectedR[i+1]);
+                        const float y=(ch==0 ? actualL[i+1] : actualR[i+1]);
+                        if(std::memcmp(&x,&y,sizeof(float))!=0) return false;
+                        const float absolute=std::abs(x);
+                        referencePeak=std::max(referencePeak,
+                            std::isfinite(absolute)?std::min(absolute,1.0f):1.0f);
+                    }
+                }
+                if(std::abs(fusedPeak-referencePeak)>1e-6f) return false;
+                if(actualL.front()!=0.f || actualL.back()!=0.f) return false;
+            }
+        }
+    }
+    Gain gain;
+    float peak=123.f;
+    if (gain.processWithPeak(Block{{{nullptr,nullptr}},2,4},peak))
+        return false;
+    if(peak!=0.f) return false;
+    return true;
+}
+
 int main() {
+    if (!testFusedGainOutputMeterParity()) {
+        std::fprintf(stderr, "SkellNative fused gain peak exact-parity regression failed\n");
+        return 1;
+    }
+    if (!testFiniteSafeGainAcrossVectorBoundaries()) {
+        std::fprintf(stderr, "SkellNative finite-safe vector gain parity failed\n");
+        return 1;
+    }
+    if (!testSampleOffsetGainSpans()) {
+        std::fprintf(stderr, "SkellNative sample-offset span processing regression failed\n");
+        return 1;
+    }
     if (!testStateSerialization()) {
         std::fprintf(stderr, "SkellNative versioned state serialization failed\n");
         return 1;

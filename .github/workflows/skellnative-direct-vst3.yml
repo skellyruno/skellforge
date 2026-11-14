@@ -1,0 +1,109 @@
+name: SkellNative direct VST3 — no JUCE
+on:
+  push:
+    branches:
+      - "feature/skellnative-direct-vst3-gain"
+    paths:
+      - "native/**"
+      - "tools/check_skellnative_vst3.py"
+      - "tools/validate_skellnative_vst3.py"
+      - "tests/test_native_direct_vst3.py"
+      - ".github/workflows/skellnative-direct-vst3.yml"
+  pull_request:
+    paths:
+      - "native/**"
+      - "tools/check_skellnative_vst3.py"
+      - "tools/validate_skellnative_vst3.py"
+      - "tests/test_native_direct_vst3.py"
+      - ".github/workflows/skellnative-direct-vst3.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Avoid wasting Windows compile minutes on superseded SDK prototypes.
+concurrency:
+  group: skellnative-direct-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-vst3:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify independent SkellNative C++ DSP first
+        shell: pwsh
+        run: |
+          cmake -S native -B native/build -DSKELLNATIVE_BUILD_TESTS=ON
+          cmake --build native/build --config Release --parallel 2
+          ctest --test-dir native/build -C Release --output-on-failure
+      - name: Parse CPU and VST3 local scripts using Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          foreach ($script in @(
+            "native/vst3/tools/Measure-FLStudioProcess.ps1",
+            "native/vst3/tools/Run-AdapterBenchmark.ps1"
+          )) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path $PWD $script),
+              [ref]$tokens, [ref]$errors) | Out-Null
+            if ($errors.Count -ne 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              throw "PowerShell 5.1 syntax check failed: $script"
+            }
+          }
+      - name: Configure pinned Steinberg VST3 SDK (JUCE disabled)
+        shell: pwsh
+        run: cmake -S native/vst3 -B native/vst3/build -A x64
+      - name: Compile JUCE-free Windows VST3 gain prototype
+        shell: pwsh
+        run: cmake --build native/vst3/build --target SkellNativeGain --config Release --parallel 2
+      - name: Verify actual PE32+ x64 VST3 binary
+        shell: pwsh
+        run: python -m tools.check_skellnative_vst3 native/vst3/build
+      - name: Build real native SkellDraw HWND interaction test
+        shell: pwsh
+        run: cmake --build native/vst3/build --target SkellDrawUiSmoke --config Release --parallel 2
+      - name: Run SkellDraw Win32 attach / paint / mouse / resize smoke
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem native/vst3/build -Recurse -Filter SkellDrawUiSmoke.exe | Select-Object -First 1
+          if (-not $exe) { throw "SkellDraw smoke executable missing" }
+          & $exe.FullName
+          if ($LASTEXITCODE -ne 0) { throw "SkellDraw smoke failed" }
+      - name: Build exact-source native VST3 host adapter benchmark
+        shell: pwsh
+        run: cmake --build native/vst3/build --target SkellNativeVst3AdapterBench --config Release --parallel 2
+      - name: Run actual IAudioProcessor host-adapter parity + metering benchmark
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem native/vst3/build -Filter SkellNativeVst3AdapterBench.exe -File -Recurse | Select-Object -First 1
+          if (-not $exe) { throw "VST3 adapter executable missing" }
+          & $exe.FullName | Set-Content vst3_adapter_profile.csv -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { throw "Actual VST3 process callback parity failed" }
+          $lines = @(Get-Content vst3_adapter_profile.csv | Where-Object { $_ -match '^\d{5},' })
+          if ($lines.Count -ne 72) { throw "Expected 72 adapter rate/format/meter/automation cases, got $($lines.Count)" }
+          $lines | Select-Object -First 4 | ForEach-Object { Write-Host $_ }
+          Write-Host "PASS: actual VST3 processor parity and 72 baseline timing scenarios"
+      - name: Upload adapter overhead timing CSV (informational)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellNative-VST3-Adapter-Process-CI
+          path: vst3_adapter_profile.csv
+          if-no-files-found: error
+          retention-days: 7
+      - name: Compile Steinberg official VST3 validator
+        shell: pwsh
+        run: cmake --build native/vst3/build --target validator --config Release --parallel 2
+      - name: Run official Steinberg host compatibility tests
+        shell: pwsh
+        run: python -m tools.validate_skellnative_vst3 native/vst3/build
+      - name: Publish inspection-only VST3 test artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SkellNative-Experimental-Windows-VST3
+          path: native/vst3/build/**/SkellNativeGain.vst3/**/*
+          if-no-files-found: error
+          retention-days: 7

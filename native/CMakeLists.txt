@@ -19,4 +19,52 @@ if(SKELLNATIVE_BUILD_TESTS)
     target_compile_options(SkellNativeDspTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME SkellNativeDspTests COMMAND SkellNativeDspTests)
+
+  # Compile the same numerical tests with SIMD explicitly disabled.
+  # This guards the scalar fallback for ARM/older x86 and provides a
+  # compile-time reference to the portable finite-sanitization semantics.
+  add_executable(SkellNativeDspScalarTests tests/test_native_dsp.cpp)
+  target_link_libraries(SkellNativeDspScalarTests PRIVATE SkellNativeDSP)
+  target_compile_features(SkellNativeDspScalarTests PRIVATE cxx_std_17)
+  target_compile_definitions(SkellNativeDspScalarTests PRIVATE
+    SKELLNATIVE_DISABLE_SIMD=1)
+  if(MSVC)
+    target_compile_options(SkellNativeDspScalarTests PRIVATE /W4 /WX)
+  else()
+    target_compile_options(SkellNativeDspScalarTests PRIVATE
+      -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME SkellNativeDspScalarTests COMMAND SkellNativeDspScalarTests)
+endif()
+
+# Benchmarks are opt-in and must never gate audio correctness by timing.
+option(SKELLNATIVE_BUILD_BENCHMARKS "Build optional portable DSP timing smoke" OFF)
+if(SKELLNATIVE_BUILD_BENCHMARKS)
+  enable_testing()
+  add_executable(SkellNativeBenchmark benchmarks/benchmark_dsp.cpp)
+  target_link_libraries(SkellNativeBenchmark PRIVATE SkellNativeDSP)
+  target_compile_features(SkellNativeBenchmark PRIVATE cxx_std_17)
+  if(MSVC)
+    target_compile_options(SkellNativeBenchmark PRIVATE /O2 /W4 /WX)
+  else()
+    target_compile_options(SkellNativeBenchmark PRIVATE -O3 -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME SkellNativeBenchmarkSmoke COMMAND SkellNativeBenchmark)
+endif()
+
+# UI semantics compile independently of a plugin host and of Windows.
+add_library(SkellDrawComponents INTERFACE)
+target_include_directories(SkellDrawComponents INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/skelldraw/include>)
+target_compile_features(SkellDrawComponents INTERFACE cxx_std_17)
+
+if(SKELLNATIVE_BUILD_TESTS)
+  add_executable(SkellDrawComponentsTests skelldraw/tests/test_components.cpp)
+  target_link_libraries(SkellDrawComponentsTests PRIVATE SkellDrawComponents)
+  if(MSVC)
+    target_compile_options(SkellDrawComponentsTests PRIVATE /W4 /WX)
+  else()
+    target_compile_options(SkellDrawComponentsTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME SkellDrawComponentsTests COMMAND SkellDrawComponentsTests)
 endif()
