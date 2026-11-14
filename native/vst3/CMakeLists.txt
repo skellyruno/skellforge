@@ -73,4 +73,23 @@ target_include_directories(SkellDrawUiSmoke PRIVATE
 target_link_libraries(SkellDrawUiSmoke PRIVATE sdk SkellDrawControls user32 gdi32)
 
 
+
+# Actual VST3 IAudioProcessor adapter (not merely the DSP kernel), compiled
+# from the exact same source as the native VST3 binary. Separate executable
+# models process data / sample-offset queues / meter outputs in memory.
+add_executable(SkellNativeVst3AdapterBench
+  tests/SkellNativeVst3AdapterBench.cpp
+  Source/NativeGainProcessor.cpp
+  Source/NativeGainIDs.h
+  Source/NativeGainStateBridge.h
+  "${SDK_ROOT}/public.sdk/source/vst/hosting/parameterchanges.cpp"
+)
+target_compile_features(SkellNativeVst3AdapterBench PRIVATE cxx_std_17)
+target_include_directories(SkellNativeVst3AdapterBench PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/Source")
+target_link_libraries(SkellNativeVst3AdapterBench PRIVATE sdk SkellNativeDSP)
+if(MSVC)
+  target_compile_options(SkellNativeVst3AdapterBench PRIVATE /O2 /W4)
+endif()
+
 # Host validator and real FL Studio session tests are separate release gates.
