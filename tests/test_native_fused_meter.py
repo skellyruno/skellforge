@@ -11,7 +11,8 @@ class FusedMeterTests(unittest.TestCase):
         self.assertIn("_mm_max_ps(peak4, _mm_min_ps(amplitude, clip))",gain)
         self.assertIn("if (!capturePeak) return kernel_.process(block);",proc)
         self.assertIn("kernel_.processWithPeak(block,spanPeak)",proc)
-        self.assertIn("No extra full-buffer memory scan",proc)
+        self.assertIn("if (capturePeak && !float32)",proc)
+        self.assertIn("kernel_.processWithPeak(block,spanPeak)",proc)
         self.assertIn("testFusedGainOutputMeterParity",suite)
         self.assertIn("std::memcmp(&x,&y,sizeof(float))",suite)
         self.assertIn("SKELLNATIVE_DISABLE_SIMD=1",

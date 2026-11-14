@@ -21,7 +21,9 @@ full-buffer peak scan accounts for a meaningful part of the measured cost.
   as clipped, not falsely silent.
 - Gain::process() is still called when the VST3 host does not request
   metering, retaining its previous no-meter performance.
-- Double-precision samples track the peak as output is written.
+- Double-precision hosts retain their established second-pass peak scan.
+  The first fused-f64 CI experiment regressed, so this path was restored
+  rather than claiming an unverified performance improvement.
 - No allocations, locks or timing instruments were added to the audio callback.
 
 ## Verification
@@ -69,3 +71,18 @@ artifact in run 43559488119. Compare it with the v0.5 CI benchmark only
 as directional evidence; local measured data should be collected repeatedly
 under consistent thermal and background-load conditions before claiming
 a measured Ryzen speedup.
+
+
+## Actual first performance iteration
+
+The first Windows Actions 72-case benchmark compared the original v0.4
+adapter run (43559488119) with initial v0.5 fused-f32+f64 (43560036170).
+This **non-controlled cross-run comparison** showed a median improvement of
+about 2.0x across nine 32-bit, no-automation metered cases, but the 64-bit
+meter path regressed (median new/original cost ~1.27x). Unmetered runs
+also varied between CI jobs. These are runner timings, not Ryzen readings.
+
+Engineering decision: retain fused SIMD tracking **only for f32** and
+restore the original f64 separate peak pass. Re-test all 72 adapter cases
+and real VST3/Steinberg host gates on this final configuration. Do not
+claim a measured f64 speedup.
