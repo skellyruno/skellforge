@@ -86,6 +86,8 @@ public:
 
         const auto channelMask = (static_cast<uint64>(1) << channels) - 1;
         output.silenceFlags = input.silenceFlags & channelMask;
+        const bool capturePeak = data.outputParameterChanges != nullptr;
+        float processedPeak = 0.0f;
 
         // Validate ALL host channel pointers before changing any output.
         for (int32 ch = 0; ch < channels; ++ch) {
@@ -123,7 +125,11 @@ public:
                     block.channel[static_cast<std::size_t>(ch)] = dest;
                 }
                 kernel_.setLinear(linear);
-                return kernel_.process(block);
+                if (!capturePeak) return kernel_.process(block);
+                float spanPeak=0.0f;
+                if (!kernel_.processWithPeak(block,spanPeak)) return false;
+                processedPeak=std::max(processedPeak,spanPeak);
+                return true;
             }
             for (int32 ch = 0; ch < channels; ++ch) {
                 double* dest = output.channelBuffers64[ch] + begin;
@@ -138,7 +144,11 @@ public:
                     const double sample = source[i];
                     const double result = std::isfinite(sample)
                         ? sample * static_cast<double>(linear) : 0.0;
-                    dest[i] = std::isfinite(result) ? result : 0.0;
+                    const double safe = std::isfinite(result) ? result : 0.0;
+                    dest[i] = safe;
+                    if (capturePeak)
+                        processedPeak = std::max(processedPeak,
+                            static_cast<float>(std::min(std::abs(safe), 1.0)));
                 }
             }
             return true;
@@ -159,34 +169,16 @@ public:
         }
         if (!processRange(cursor, data.numSamples)) return kResultFalse;
 
-        // Real output level, not a cosmetic animation. VST3 hosts can forward
-        // read-only output parameters to the editor. If the host provides no
-        // output queue, avoid the extra peak scan entirely.
-        if (data.outputParameterChanges) {
-            float maxPeak=0.0f;
-            for (int32 channel=0;channel<channels;++channel) {
-                if(float32) {
-                    const float* samples=output.channelBuffers32[channel];
-                    for(int32 i=0;i<data.numSamples;++i) {
-                        const float value=std::abs(samples[i]);
-                        maxPeak=std::max(maxPeak,std::isfinite(value)?value:1.0f);
-                    }
-                } else {
-                    const double* samples=output.channelBuffers64[channel];
-                    for(int32 i=0;i<data.numSamples;++i) {
-                        const double value=std::abs(samples[i]);
-                        maxPeak=std::max(maxPeak,std::isfinite(value)
-                            ?static_cast<float>(std::min(value,1.0)):1.0f);
-                    }
-                }
-            }
+        // Output meter uses the peak captured DURING gain processing.
+        // No extra full-buffer memory scan on either f32 or f64 hosts.
+        if (capturePeak) {
             int32 queueIndex=0;
             auto* meterQueue=data.outputParameterChanges->addParameterData(
                 kOutputPeakParam,queueIndex);
             if(meterQueue) {
                 int32 eventIndex=0;
                 meterQueue->addPoint(data.numSamples-1,
-                                     std::clamp(static_cast<double>(maxPeak),0.0,1.0),
+                                     static_cast<double>(processedPeak),
                                      eventIndex);
             }
         }
