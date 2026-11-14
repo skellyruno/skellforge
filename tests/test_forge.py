@@ -78,6 +78,28 @@ class ForgeTests(unittest.TestCase):
         self.assertIn("0.0f", proc)
         self.assertIn("gain_.skip(frames)", proc)
 
+    def test_starter_theme_hit_area_and_compact_geometry(self):
+        """Guard the skull hit target and minimum editor layout against clipping."""
+        self.make()
+        editor = (self.project / "Source" / "PluginEditor.cpp").read_text()
+        header = (self.project / "Source" / "PluginEditor.h").read_text()
+        self.assertIn("themeButton_.setBounds(22, 17, 82, 38)", editor)
+        self.assertIn("setResizeLimits(390, 260, 900, 600)", editor)
+        self.assertIn("setWantsKeyboardFocus(true)", header)
+        self.assertIn("hasKeyboardFocus(true)", header)
+        # Provisional skull is painted in parent coordinates inside the
+        # clickable button (x=22..104, y=17..55), including its teeth.
+        skull_left, skull_top = 50.0 + 1.0, 21.0
+        skull_right, skull_bottom = 50.0 + 26.0, 21.0 + 28.0
+        self.assertGreaterEqual(skull_left, 22)
+        self.assertGreaterEqual(skull_top, 17)
+        self.assertLessEqual(skull_right, 104)
+        self.assertLessEqual(skull_bottom, 55)
+        # At the minimum editor height, the gain knob must clear the footer.
+        min_height = 260
+        knob_size = max(116, min(176, min_height - 145))
+        self.assertLessEqual(106 + knob_size, min_height - 36)
+
     def test_output_is_not_overwritten(self):
         self.make()
         original = (self.project / "skellforge.json").read_bytes()
