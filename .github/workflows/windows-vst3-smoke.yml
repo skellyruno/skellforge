@@ -2,20 +2,26 @@ name: SkellForge generated Windows VST3 smoke build
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    # Cover branch commits even when GitHub doesn't deliver a PR synchronize run.
+    # Path filters avoid expensive Windows builds for DSP-only experiments.
+    branches: [main, "feature/**", "fix/**", "agent/**"]
     paths:
       - "skellforge/**"
       - "templates/**"
       - "tools/**"
+      - "examples/**"
       - ".github/workflows/windows-vst3-smoke.yml"
   pull_request:
     paths:
       - "skellforge/**"
       - "templates/**"
+      - "tools/**"
+      - "examples/**"
+      - ".github/workflows/windows-vst3-smoke.yml"
 permissions:
   contents: read
 concurrency:
-  group: skellforge-smoke-${{ github.ref }}
+  group: skellforge-smoke-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   build:
