@@ -15,7 +15,7 @@
     skellcore::ui::configureStudioKnob(gainKnob_, 0.0);
     gainKnob_.setTextValueSuffix(" dB");
     themeButton_.onClick = [this] { changeSkin(); };
-    addAndMakeVisible(skull_);
+    addAndMakeVisible(themeButton_);
     addAndMakeVisible(title_);
     addAndMakeVisible(gainLabel_);
     addAndMakeVisible(gainKnob_);
