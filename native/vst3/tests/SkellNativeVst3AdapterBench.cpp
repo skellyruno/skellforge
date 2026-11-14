@@ -106,10 +106,15 @@ struct Trial {
         outBus.numChannels=2;
         inBus.silenceFlags=0;
         outBus.silenceFlags=0;
-        inBus.channelBuffers32=in32.data();
-        outBus.channelBuffers32=out32.data();
-        inBus.channelBuffers64=in64.data();
-        outBus.channelBuffers64=out64.data();
+        // AudioBusBuffers uses a UNION: only assign the active sample
+        // precision. Assigning both would overwrite 32-bit pointers.
+        if(sampleSize==kSample32) {
+            inBus.channelBuffers32=in32.data();
+            outBus.channelBuffers32=out32.data();
+        } else {
+            inBus.channelBuffers64=in64.data();
+            outBus.channelBuffers64=out64.data();
+        }
         data.processMode=kRealtime;
         data.symbolicSampleSize=sampleSize;
         data.numSamples=frames;
