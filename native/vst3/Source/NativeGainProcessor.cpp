@@ -144,11 +144,7 @@ public:
                     const double sample = source[i];
                     const double result = std::isfinite(sample)
                         ? sample * static_cast<double>(linear) : 0.0;
-                    const double safe = std::isfinite(result) ? result : 0.0;
-                    dest[i] = safe;
-                    if (capturePeak)
-                        processedPeak = std::max(processedPeak,
-                            static_cast<float>(std::min(std::abs(safe), 1.0)));
+                    dest[i] = std::isfinite(result) ? result : 0.0;
                 }
             }
             return true;
@@ -169,8 +165,21 @@ public:
         }
         if (!processRange(cursor, data.numSamples)) return kResultFalse;
 
-        // Output meter uses the peak captured DURING gain processing.
-        // No extra full-buffer memory scan on either f32 or f64 hosts.
+        // The f32 path fuses gain and peak in SSE2; the f64 path
+        // deliberately uses the original second scan. On the first
+        // same-runner v0.4/v0.5 measurements, tracking f64 peak inside its
+        // scalar gain loop prevented efficient code generation and lost
+        // performance. Keep the proven f64 path until separately optimized.
+        if (capturePeak && !float32) {
+            for (int32 channel=0;channel<channels;++channel) {
+                const double* samples=output.channelBuffers64[channel];
+                for (int32 i=0;i<data.numSamples;++i) {
+                    const double value=std::abs(samples[i]);
+                    processedPeak=std::max(processedPeak,std::isfinite(value)
+                        ?static_cast<float>(std::min(value,1.0)):1.0f);
+                }
+            }
+        }
         if (capturePeak) {
             int32 queueIndex=0;
             auto* meterQueue=data.outputParameterChanges->addParameterData(
