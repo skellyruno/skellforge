@@ -34,6 +34,16 @@ class ForgeTests(unittest.TestCase):
         cmake = (self.project / "CMakeLists.txt").read_text()
         self.assertIn("FORMATS VST3", cmake)
         self.assertNotIn("Standalone", cmake)
+        # Optional capture compiles the real JUCE editor only when requested.
+        self.assertIn("option(SKELLFORGE_BUILD_SMOKE_UI", cmake)
+        self.assertIn("if(SKELLFORGE_BUILD_SMOKE_UI)", cmake)
+        self.assertIn("tools/SmokeUiCapture.cpp", cmake)
+        self.assertIn("SkellForgeSmokeUiCapture", cmake)
+        capture = (self.project / "tools" / "SmokeUiCapture.cpp").read_text()
+        self.assertIn("createComponentSnapshot", capture)
+        self.assertIn("themeButton->onClick()", capture)
+        self.assertIn("key-shaft ghost", capture)
+
         self.assertIn(CORE_REV, cmake)
         self.assertNotIn("@@", cmake)
         proc = (self.project / "Source" / "PluginProcessor.cpp").read_text()

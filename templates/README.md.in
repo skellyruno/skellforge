@@ -31,6 +31,13 @@ cmake --build build --config Release --parallel 2
 The .vst3 bundle lives under `build/@@TARGET@@_artefacts/Release/VST3/`.
 The generated GitHub Actions workflow builds and uploads an actual Windows VST3.
 
+For development-only real editor inspection, pass
+`-DSKELLFORGE_BUILD_SMOKE_UI=ON` to CMake. This builds an additional console
+tool (`SkellForgeSmokeUiCapture`), separate from the VST3; it saves real
+JUCE editor PNGs for three sizes and both skins, and validates the temporary
+skull-only mark and theme-switch behavior. Default is OFF; the capture tool
+is never packaged into the released VST3.
+
 ## Startup behavior and shared UI
 
 - One automatable `gain_db` parameter from -24 to +24 dB in whole numbers.

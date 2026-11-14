@@ -1,7 +1,8 @@
 #include "PluginEditor.h"
 
-// Provisional Forge starter icon: just the original skull head, no Skell Key shaft
-// or teeth. This is local to newly generated starter UIs; it does not replace
+// Provisional Forge starter icon: original skull head, eyes, nose and teeth,
+// without Skell Key's shaft/blade. This only applies to generated starter UIs;
+// it does not replace
 // any existing plugin's artwork and is not the approved master Skelly skull.
 namespace {
 void drawProvisionalSkullOnly(juce::Graphics& g, float x, float y,
