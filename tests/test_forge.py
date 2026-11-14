@@ -45,6 +45,14 @@ class ForgeTests(unittest.TestCase):
         self.assertNotIn('g.drawFittedText("SKELLFORGE / VST3"', editor)
         self.assertIn("forgeui::drawLabels(", editor)
         self.assertNotIn("FORGE_EDITOR_DIAG", editor)
+        header = (self.project / "Source" / "PluginEditor.h").read_text()
+        self.assertIn('g.drawFittedText("THEME", themeButton_.getBounds()', editor)
+        self.assertNotIn("drawSkullKeyMark", editor)
+        self.assertIn("forgeui::layout(themeButton_", editor)
+        self.assertIn("ThemeButton themeButton_", header)
+        self.assertIn("setWantsKeyboardFocus(true)", header)
+        self.assertIn("isMouseOver || isButtonDown", header)
+        self.assertNotIn("SkullHitArea", header)
 
     def test_headless_preview_initialization_contract(self):
         """Prevent native UI preview access violations from resizer/APVTS setup."""

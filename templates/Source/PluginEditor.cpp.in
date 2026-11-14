@@ -1,5 +1,4 @@
 #include "PluginEditor.h"
-#include <SkellCore/SkullTheme.h>
 #include "ForgeUI.h"
 
 @@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
@@ -23,8 +22,8 @@
     gainAttachment_ = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
         processor.parameters, "gain_db", gainKnob_);
     gainKnob_.setTextValueSuffix(" dB");
-    skull_.onClick = [this] { changeSkin(); };
-    addAndMakeVisible(skull_);
+    themeButton_.onClick = [this] { changeSkin(); };
+    addAndMakeVisible(themeButton_);
     addAndMakeVisible(title_);
     addAndMakeVisible(gainLabel_);
     addAndMakeVisible(gainKnob_);
@@ -54,13 +53,16 @@ void @@TARGET@@AudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(panel, 9.0f);
     g.setColour(palette.border);
     g.drawRoundedRectangle(panel, 9.0f, 1.1f);
-    // Existing shared skull-key mark, pending official master skull approval.
-    skellcore::ui::drawSkullKeyMark(g, 25.0f, 21.0f, palette.accent, palette.surface);
+    // Neutral fallback until a plugin-specific skull is approved. Use the
+    // authored theme-control bounds so the visible hit area tracks resizing.
+    g.setColour(palette.accent);
+    g.setFont(juce::Font(juce::FontOptions(13.0f).withStyle("Bold")));
+    g.drawFittedText("THEME", themeButton_.getBounds(), juce::Justification::centred, 1);
     // Authored Studio labels own the footer; fixed branding would overlap them.
     forgeui::drawLabels(g, getWidth(), getHeight(), palette.foreground);
 }
 
 void @@TARGET@@AudioProcessorEditor::resized() {
-    forgeui::layout(skull_, title_, gainLabel_, gainKnob_, getWidth(), getHeight());
+    forgeui::layout(themeButton_, title_, gainLabel_, gainKnob_, getWidth(), getHeight());
     extraControls_.layout(getWidth(), getHeight());
 }

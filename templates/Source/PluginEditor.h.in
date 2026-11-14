@@ -11,16 +11,26 @@ public:
     void paint(juce::Graphics&) override;
     void resized() override;
 private:
-    struct SkullHitArea final : juce::Button {
-        SkullHitArea() : juce::Button("Theme") {
+    struct ThemeButton final : juce::Button {
+        ThemeButton() : juce::Button("Theme") {
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
-            setTooltip("Click the shared skull to change the theme");
+            setWantsKeyboardFocus(true);
+            setTooltip("Click to change the theme");
         }
-        void paintButton(juce::Graphics&, bool, bool) override {}
+        void paintButton(juce::Graphics& g, bool isMouseOver, bool isButtonDown) override {
+            if (isMouseOver || isButtonDown) {
+                g.setColour(juce::Colours::white.withAlpha(isButtonDown ? 0.14f : 0.07f));
+                g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), 5.0f);
+            }
+            if (hasKeyboardFocus(true)) {
+                g.setColour(juce::Colours::white.withAlpha(0.9f));
+                g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), 5.0f, 2.0f);
+            }
+        }
     };
     void changeSkin();
     skellcore::ui::StudioLookAndFeel skin_{skellcore::ui::StudioSkin::Obsidian};
-    SkullHitArea skull_;
+    ThemeButton themeButton_;
     juce::Label title_;
     juce::Label gainLabel_;
     juce::Slider gainKnob_;
