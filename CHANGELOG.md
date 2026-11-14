@@ -17,19 +17,21 @@ generated projects differ only in the CMake dependency-path logic and one `.giti
 - An error while writing the ZIP (disk full, ...) left a partial package behind; it is now
   removed. A pre-existing file at `--out` is never touched, and failing to delete the partial
   file no longer hides the original error.
-- Product names with a trailing space (`"Skell Pulse "`) and Windows reserved device names
-  (`Aux`, `Con`, `Nul`, `Com1`, ...) were accepted but cannot form a valid `<name>.vst3` file.
-  **Existing projects with such a name will now fail `validate`/`build`/`package`; rename the
-  product (and regenerate) before shipping.**
+- New plugins reject trailing-space or reserved Windows device names, but validation
+  now preserves original v0.1 names and IDs. Existing projects need an explicit
+  compatibility-tested migration before Windows distribution, not a silent rename.
 - `audit` missed `Standalone` when `FORMATS` spanned several lines or used `;`/`${VAR}`,
   read `PLUGIN_CODE`/`BUNDLE_ID` from unrelated `set()`/`message()` lines, and treated
   commented-out CMake/C++ as real.
 - Generated `CMakeLists.txt` silently downloaded JUCE/SkellCore when an explicit but wrong
   `JUCE_PATH`/`SKELLCORE_PATH` was given (including values like `OFF`/`0`). It now stops with
   an error. (An empty value still means "download the pinned dependency".)
-- Manifest JSON files are written with `\n` line endings on every OS, like the other generated files.
+- Manifest JSON files are written with `
+` line endings on every OS, like the other generated files.
 
 ### Changed
+- Packaging preflight now rejects symbolic links, multiple VST3 binaries, binaries
+  outside Contents/x86_64-win and ZIP output inside the source bundle.
 - `validate` now guards `parameter_ids`: an ID listed in `skellforge.json` that no longer
   appears as a `"quoted string"` in any source file (comments and `build/` ignored) is an error.
   This is intentionally conservative so valid refactors (constants, other folders, `.inl`

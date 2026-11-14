@@ -29,6 +29,8 @@ CORE_REV = "268cf6ba43e2a7fbb7e7b39bd3855663e00089f2"
 
 # 2-80 characters, and no trailing space (Windows strips it from the .vst3 file name).
 NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{0,78}[A-Za-z0-9_-]\Z")
+# Preserve only original v0.1 names when validating old project manifests.
+LEGACY_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{1,79}\Z")
 # The product name becomes "<name>.vst3"; Windows cannot create these file names.
 WINDOWS_RESERVED_NAMES = frozenset(
     {"con", "prn", "aux", "nul"}
@@ -54,11 +56,15 @@ class ForgeError(Exception):
 
 
 def identity(name: str, code: str, core_rev: str = CORE_REV,
-             core_repo: str = CORE_REPO) -> dict[str, str]:
-    if not NAME_PATTERN.fullmatch(name):
+             core_repo: str = CORE_REPO, *,
+             allow_legacy_name: bool = False) -> dict[str, str]:
+    if not isinstance(name, str) or not (
+        NAME_PATTERN.fullmatch(name)
+        or (allow_legacy_name and LEGACY_NAME_PATTERN.fullmatch(name))
+    ):
         raise ForgeError("Product name: 2-80 ASCII letters, digits, spaces, underscores or hyphens; "
                          "start with a letter and do not end with a space")
-    if name.casefold() in WINDOWS_RESERVED_NAMES:
+    if name.casefold() in WINDOWS_RESERVED_NAMES and not allow_legacy_name:
         raise ForgeError(f"Product name {name!r} is a reserved Windows file name; choose another")
     if not CODE_PATTERN.fullmatch(code):
         raise ForgeError("Plugin code must be exactly four ASCII letters/digits")
@@ -191,8 +197,10 @@ def validate_project(project: Path) -> dict:
     parameter_ids = data.get("parameter_ids", [])
     if not isinstance(parameter_ids, list) or not all(isinstance(i, str) for i in parameter_ids):
         raise ForgeError("Invalid skellforge.json: parameter_ids must be a list of text values")
+    # New projects use safe names; existing v0.1 manifests retain exact IDs.
     info = identity(data.get("name", ""), data.get("plugin_code", ""),
-                    data.get("core_revision", ""), data.get("core_repo", ""))
+                    data.get("core_revision", ""), data.get("core_repo", ""),
+                    allow_legacy_name=True)
     for key, expected in (("target", info["target"]), ("bundle_id", info["bundle"]),
                           ("manufacturer_code", "SkAu"), ("formats", ["VST3"]),
                           ("platforms", ["Windows"])):
@@ -275,9 +283,18 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
-    if not any(p.is_file() and p.suffix.lower() == ".vst3" for p in bundle.rglob("*")):
-        raise ForgeError("VST3 bundle contains no VST3 binary")
+    # Do not archive symlinks: they can include unrelated files outside the bundle.
+    entries = sorted(bundle.rglob("*"))
+    if bundle.is_symlink() or any(p.is_symlink() for p in entries):
+        raise ForgeError("VST3 bundle contains a symbolic link; refusing export")
+    binaries = [p for p in entries if p.is_file() and p.suffix.lower() == ".vst3"]
+    if len(binaries) != 1:
+        raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
+    if binaries[0].relative_to(bundle).parts[:2] != ("Contents", "x86_64-win"):
+        raise ForgeError("VST3 binary must be inside Contents/x86_64-win")
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
+    if output.is_symlink() or bundle.resolve() in output.resolve(strict=False).parents:
+        raise ForgeError("Package destination must not be a symlink or inside the VST3 bundle")
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")
     if not output.parent.is_dir():
@@ -286,7 +303,7 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     try:
         with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
             created = True
-            for file in sorted(bundle.rglob("*")):
+            for file in entries:
                 if file.is_file():
                     arcname = (Path(bundle.name) / file.relative_to(bundle)).as_posix()
                     archive.write(file, arcname=arcname)

@@ -5,6 +5,11 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Cancel only superseded development runs. Main, manual, production, release
+# and tag builds have isolated run groups and are never auto-canceled.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'production' || github.ref_name == 'release' || github.ref_type == 'tag' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/releases/') || startsWith(github.ref, 'refs/heads/production/') || startsWith(github.base_ref, 'release/')) && github.run_id || (github.head_ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref_name != 'main' && github.ref_name != 'production' && github.ref_name != 'release' && github.ref_type != 'tag' && !startsWith(github.ref, 'refs/heads/release/') && !startsWith(github.ref, 'refs/heads/releases/') && !startsWith(github.ref, 'refs/heads/production/') && !startsWith(github.head_ref, 'release/') && !startsWith(github.head_ref, 'releases/') && !startsWith(github.head_ref, 'production/') && !startsWith(github.base_ref, 'release/') && !startsWith(github.base_ref, 'releases/') && !startsWith(github.base_ref, 'production/') }}
 jobs:
   python:
     strategy:
@@ -14,8 +19,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Test generator, IDs and VST3 packaging

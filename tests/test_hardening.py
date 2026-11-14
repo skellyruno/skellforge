@@ -57,6 +57,13 @@ class ProjectCase(unittest.TestCase):
 
 
 class IdentityRulesTests(unittest.TestCase):
+    def test_original_names_are_grandfathered_only_during_validation(self):
+        for name in ("Skell Pulse ", "Con", "Aux", "COM1"):
+            with self.subTest(name=name):
+                self.assertEqual(identity(name, "Sf01", allow_legacy_name=True)["name"], name)
+                with self.assertRaises(ForgeError):
+                    identity(name, "Sf01")
+
     def test_name_length_and_trailing_space(self):
         longest = "a " * 39 + "ab"  # exactly 80 characters, 41-character slug
         self.assertEqual(len(longest), 80)
@@ -87,6 +94,21 @@ class IdentityRulesTests(unittest.TestCase):
 
 
 class ValidateHardeningTests(ProjectCase):
+    def test_existing_trailing_space_name_does_not_change_published_identity(self):
+        self.make()
+        path = self.project / "skellforge.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["name"] = "Skell Pulse "
+        path.write_text(json.dumps(data), encoding="utf-8")
+        world = self.project / "skellworld.json"
+        metadata = json.loads(world.read_text(encoding="utf-8"))
+        metadata["name"] = "Skell Pulse "
+        world.write_text(json.dumps(metadata), encoding="utf-8")
+        result = validate_project(self.project)
+        self.assertEqual(result["name"], "Skell Pulse ")
+        self.assertEqual(result["bundle_id"], "audio.skell.skellpulse")
+        self.assertEqual(result["parameter_ids"], ["gain_db"])
+
     def test_malformed_manifests_are_reported_not_crashed(self):
         cases = (
             ("skellforge.json", "[]", "JSON object"),
@@ -306,6 +328,50 @@ class BuildTests(ProjectCase):
 
 
 class PackageHardeningTests(ProjectCase):
+    def test_rejects_two_binaries_inside_one_bundle(self):
+        self.make()
+        self.fake_bundle("Release", "VST3")
+        bundle = (self.project / "build" / "SkellPulse_artefacts" / "Release"
+                  / "VST3" / "Skell Pulse.vst3")
+        (bundle / "Contents" / "x86_64-win" / "Second.vst3").write_bytes(b"extra")
+        with self.assertRaisesRegex(ForgeError, "exactly one VST3 binary"):
+            package_project(self.project)
+
+    def test_rejects_wrong_binary_folder(self):
+        self.make()
+        bundle = (self.project / "build" / "SkellPulse_artefacts" / "Release"
+                  / "VST3" / "Skell Pulse.vst3")
+        bundle.mkdir(parents=True)
+        (bundle / "plugin.vst3").write_bytes(b"wrong-location")
+        with self.assertRaisesRegex(ForgeError, "Contents/x86_64-win"):
+            package_project(self.project)
+
+    def test_output_cannot_be_created_inside_source_bundle(self):
+        self.make()
+        self.fake_bundle("Release", "VST3")
+        bundle = (self.project / "build" / "SkellPulse_artefacts" / "Release"
+                  / "VST3" / "Skell Pulse.vst3")
+        output = bundle / "self.zip"
+        with self.assertRaisesRegex(ForgeError, "Package destination"):
+            package_project(self.project, output)
+        self.assertFalse(output.exists())
+
+    def test_rejects_symlink_to_unrelated_file(self):
+        self.make()
+        self.fake_bundle("Release", "VST3")
+        bundle = (self.project / "build" / "SkellPulse_artefacts" / "Release"
+                  / "VST3" / "Skell Pulse.vst3")
+        secret = self.root / "outside.txt"
+        secret.write_text("private external data")
+        try:
+            (bundle / "outside.txt").symlink_to(secret)
+        except (OSError, NotImplementedError):
+            self.skipTest("Symlink creation not permitted on this runner")
+        output = self.root / "unsafe.zip"
+        with self.assertRaisesRegex(ForgeError, "symbolic link"):
+            package_project(self.project, output)
+        self.assertFalse(output.exists())
+
     def test_stale_debug_bundle_does_not_block_release_packaging(self):
         self.make()
         self.fake_bundle("Release", "VST3")
