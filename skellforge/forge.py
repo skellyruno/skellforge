@@ -17,15 +17,24 @@ import zipfile
 from pathlib import Path
 
 from . import __version__
-from .audit import audit_project
+from .audit import audit_project, find_string_literals, strip_cmake_comments
 
+MIN_PYTHON = (3, 10)  # Path.write_text(newline=...) needs 3.10
+PARAMETER_SCAN_LIMIT = 2000
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
 KNOWN_CODES = ROOT / "config" / "known_codes.json"
 CORE_REPO = "https://github.com/skellyruno/skellcore-vst-template.git"
 CORE_REV = "268cf6ba43e2a7fbb7e7b39bd3855663e00089f2"
 
-NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{1,79}\Z")
+# 2-80 characters, and no trailing space (Windows strips it from the .vst3 file name).
+NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{0,78}[A-Za-z0-9_-]\Z")
+# Preserve only original v0.1 names when validating old project manifests.
+LEGACY_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{1,79}\Z")
+# The product name becomes "<name>.vst3"; Windows cannot create these file names.
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)})
 CODE_PATTERN = re.compile(r"[A-Za-z0-9]{4}\Z")
 SHA_PATTERN = re.compile(r"[a-fA-F0-9]{40}\Z")
 REPO_PATTERN = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git\Z")
@@ -47,9 +56,16 @@ class ForgeError(Exception):
 
 
 def identity(name: str, code: str, core_rev: str = CORE_REV,
-             core_repo: str = CORE_REPO) -> dict[str, str]:
-    if not NAME_PATTERN.fullmatch(name):
-        raise ForgeError("Product name: 2-80 ASCII letters, digits, spaces, underscores or hyphens; start with a letter")
+             core_repo: str = CORE_REPO, *,
+             allow_legacy_name: bool = False) -> dict[str, str]:
+    if not isinstance(name, str) or not (
+        NAME_PATTERN.fullmatch(name)
+        or (allow_legacy_name and LEGACY_NAME_PATTERN.fullmatch(name))
+    ):
+        raise ForgeError("Product name: 2-80 ASCII letters, digits, spaces, underscores or hyphens; "
+                         "start with a letter and do not end with a space")
+    if name.casefold() in WINDOWS_RESERVED_NAMES and not allow_legacy_name:
+        raise ForgeError(f"Product name {name!r} is a reserved Windows file name; choose another")
     if not CODE_PATTERN.fullmatch(code):
         raise ForgeError("Plugin code must be exactly four ASCII letters/digits")
     if not SHA_PATTERN.fullmatch(core_rev):
@@ -145,12 +161,23 @@ def create_project(name: str, destination: Path, code: str,
             "capabilities": [],
         }
         for filename, content in (("skellforge.json", manifest), ("skellworld.json", world)):
-            (destination / filename).write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
+            (destination / filename).write_text(json.dumps(content, indent=2) + "\n",
+                                                encoding="utf-8", newline="\n")
         validate_project(destination)
     except BaseException:
         shutil.rmtree(destination)
         raise
     return destination
+
+
+def _load_manifest(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError, RecursionError) as exc:  # RecursionError: absurdly nested JSON
+        raise ForgeError(f"Invalid project manifest: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ForgeError(f"Invalid project manifest: {path.name} must contain a JSON object")
+    return value
 
 
 def validate_project(project: Path) -> dict:
@@ -160,32 +187,59 @@ def validate_project(project: Path) -> dict:
     for path in REQUIRED:
         if not (project / path).is_file():
             raise ForgeError(f"Required project file missing: {path}")
-    try:
-        data = json.loads((project / "skellforge.json").read_text(encoding="utf-8"))
-        world = json.loads((project / "skellworld.json").read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        raise ForgeError(f"Invalid project manifest: {exc}") from exc
+    data = _load_manifest(project / "skellforge.json")
+    world = _load_manifest(project / "skellworld.json")
     if data.get("schema") != "skellforge/plugin/1":
         raise ForgeError("Unsupported SkellForge manifest schema")
+    for key in ("name", "plugin_code", "core_revision", "core_repo"):
+        if not isinstance(data.get(key, ""), str):
+            raise ForgeError(f"Invalid skellforge.json: {key} must be a text value")
+    parameter_ids = data.get("parameter_ids", [])
+    if not isinstance(parameter_ids, list) or not all(isinstance(i, str) for i in parameter_ids):
+        raise ForgeError("Invalid skellforge.json: parameter_ids must be a list of text values")
+    # New projects use safe names; existing v0.1 manifests retain exact IDs.
     info = identity(data.get("name", ""), data.get("plugin_code", ""),
-                    data.get("core_revision", ""), data.get("core_repo", ""))
+                    data.get("core_revision", ""), data.get("core_repo", ""),
+                    allow_legacy_name=True)
     for key, expected in (("target", info["target"]), ("bundle_id", info["bundle"]),
                           ("manufacturer_code", "SkAu"), ("formats", ["VST3"]),
                           ("platforms", ["Windows"])):
         if data.get(key) != expected:
             raise ForgeError(f"Identity mismatch in skellforge.json: {key}")
-    cmake = (project / "CMakeLists.txt").read_text(encoding="utf-8")
-    for expected in (f"PLUGIN_CODE {info['code']}",
-                     f'BUNDLE_ID "{info["bundle"]}"',
-                     f"juce_add_plugin({info['target']}",
-                     f"GIT_TAG {info['core_rev']}"):
-        if expected not in cmake:
+    # Commented-out lines must not satisfy an identity check.
+    cmake = strip_cmake_comments((project / "CMakeLists.txt").read_text(encoding="utf-8"))
+    end = r"(?![A-Za-z0-9_])"  # whole-token match: "Sf01" must not accept "Sf01x"
+    for expected, pattern in (
+            (f"PLUGIN_CODE {info['code']}",
+             r"(?<![A-Za-z0-9_])PLUGIN_CODE\s+" + re.escape(info["code"]) + end),
+            (f'BUNDLE_ID "{info["bundle"]}"',
+             r"(?<![A-Za-z0-9_])BUNDLE_ID\s+\"" + re.escape(info["bundle"]) + r"\""),
+            (f"juce_add_plugin({info['target']}",
+             r"\bjuce_add_plugin\s*\(\s*" + re.escape(info["target"]) + end),
+            (f"GIT_REPOSITORY {info['core_repo']}",
+             r"\bGIT_REPOSITORY\s+\"?" + re.escape(info["core_repo"]) + r"\"?(?=[\s)])"),
+            (f"GIT_TAG {info['core_rev']}",
+             r"\bGIT_TAG\s+" + re.escape(info["core_rev"]) + end)):
+        if not re.search(pattern, cmake):
             raise ForgeError(f"CMake identity or dependency pin mismatch: {expected}")
     if not re.search(r"\bFORMATS\s+VST3\b", cmake) or re.search(r"\bStandalone\b", cmake):
         raise ForgeError("Only the Windows VST3 format is permitted in this starter")
     if world.get("plugin_code") != info["code"] or world.get("bundle_id") != info["bundle"] \
             or world.get("product_id") != info["world_id"]:
         raise ForgeError("SkellWorld manifest identity disagrees with SkellForge")
+    if parameter_ids:
+        # Parameter IDs are what saved projects and host automation bind to. Deliberately
+        # conservative: an ID counts as present if its exact "string" appears anywhere in the
+        # project's code (constants, other folders and .inl files all work), so only an ID that
+        # has vanished from every source file is an error. An incomplete scan proves nothing.
+        scan = find_string_literals(project, parameter_ids, limit=PARAMETER_SCAN_LIMIT)
+        missing = sorted(set(parameter_ids) - scan["found"])
+        if missing and scan["complete"]:
+            raise ForgeError(
+                f"Parameter ID(s) listed in skellforge.json no longer appear in any source file: "
+                f"{', '.join(missing)}. Renaming or removing a parameter ID breaks saved projects "
+                "and host automation; restore it (or, only for a never-released plugin, "
+                "update parameter_ids in the manifest).")
     return data
 
 
@@ -199,11 +253,15 @@ def build_project(project: Path, juce_path: Path | None = None,
     project = project.resolve()
     output = project / "build"
     cmd = ["cmake", "-S", str(project), "-B", str(output), "-A", "x64"]
-    for option, path in (("JUCE_PATH", juce_path), ("SKELLCORE_PATH", core_path)):
+    # The generated CMakeLists.txt accepts a SkellCore repo root (SkellCore/CMakeLists.txt)
+    # or the library folder itself; check exactly what CMake will accept.
+    for option, path, layouts in (("JUCE_PATH", juce_path, ("CMakeLists.txt",)),
+                                  ("SKELLCORE_PATH", core_path,
+                                   ("SkellCore/CMakeLists.txt", "CMakeLists.txt"))):
         if path is not None:
             path = path.expanduser().resolve()
-            if not (path / "CMakeLists.txt").is_file():
-                raise ForgeError(f"{option} does not contain a CMakeLists.txt: {path}")
+            if not any((path / layout).is_file() for layout in layouts):
+                raise ForgeError(f"{option} does not contain {' or '.join(layouts)}: {path}")
             cmd.append(f"-D{option}={path}")
     subprocess.run(cmd, check=True)
     subprocess.run(["cmake", "--build", str(output), "--config", "Release",
@@ -216,25 +274,49 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     artefacts = project / "build" / (data["target"] + "_artefacts")
     if not artefacts.is_dir():
         raise ForgeError(f"No build artefacts found: {artefacts}")
-    bundles = sorted(p for p in artefacts.rglob("*.vst3") if p.is_dir())
+    # Multi-config generators write <target>_artefacts/<Config>/VST3; the build command
+    # makes Release, so a stale Debug bundle must not block packaging.
+    search_root = artefacts / "Release"
+    if not search_root.is_dir():
+        search_root = artefacts
+    bundles = sorted(p for p in search_root.rglob("*.vst3") if p.is_dir())
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
-    if not any(p.is_file() and p.suffix.lower() == ".vst3" for p in bundle.rglob("*")):
-        raise ForgeError("VST3 bundle contains no VST3 binary")
+    # Do not archive symlinks: they can include unrelated files outside the bundle.
+    entries = sorted(bundle.rglob("*"))
+    if bundle.is_symlink() or any(p.is_symlink() for p in entries):
+        raise ForgeError("VST3 bundle contains a symbolic link; refusing export")
+    binaries = [p for p in entries if p.is_file() and p.suffix.lower() == ".vst3"]
+    if len(binaries) != 1:
+        raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
+    if binaries[0].relative_to(bundle).parts[:2] != ("Contents", "x86_64-win"):
+        raise ForgeError("VST3 binary must be inside Contents/x86_64-win")
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
+    if output.is_symlink() or bundle.resolve() in output.resolve(strict=False).parents:
+        raise ForgeError("Package destination must not be a symlink or inside the VST3 bundle")
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")
     if not output.parent.is_dir():
         raise ForgeError(f"Package destination parent directory missing: {output.parent}")
-    with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted(bundle.rglob("*")):
-            if file.is_file():
-                archive.write(file, arcname=str(Path(bundle.name) / file.relative_to(bundle)))
-    with zipfile.ZipFile(output, "r") as archive:
-        if archive.testzip() is not None:
-            output.unlink(missing_ok=True)
-            raise ForgeError("Packaged ZIP failed integrity verification")
+    created = False
+    try:
+        with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+            created = True
+            for file in entries:
+                if file.is_file():
+                    arcname = (Path(bundle.name) / file.relative_to(bundle)).as_posix()
+                    archive.write(file, arcname=arcname)
+        with zipfile.ZipFile(output, "r") as archive:
+            if archive.testzip() is not None:
+                raise ForgeError("Packaged ZIP failed integrity verification")
+    except BaseException:
+        if created:  # never leave a partial package, and never delete a file we did not create
+            try:
+                output.unlink(missing_ok=True)
+            except OSError:
+                pass  # e.g. a Windows scanner holds the file; keep the original error
+        raise
     return output
 
 
@@ -242,6 +324,8 @@ def doctor() -> None:
     print(f"SkellForge {__version__} | Python {platform.python_version()} | {platform.system()}")
     for binary in ("cmake", "git"):
         print(f"  {binary}: {shutil.which(binary) or 'NOT FOUND'}")
+    print(f"  Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required: "
+          f"{'ok' if sys.version_info >= MIN_PYTHON else 'TOO OLD'}")
     print(f"  Windows build supported here: {sys.platform == 'win32'}")
     print(f"  shared SkellCore pin: {CORE_REV}")
     print("  Dependencies are fetched only by CMake, not by generation.")
@@ -275,6 +359,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.version_info < MIN_PYTHON:
+        print(f"SkellForge error: Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ is required "
+              f"(running {platform.python_version()})", file=sys.stderr)
+        return 1
     args = parser().parse_args(argv)
     try:
         if args.action == "new":
