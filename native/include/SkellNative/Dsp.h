@@ -78,6 +78,53 @@ public:
         }
         return true;
     }
+
+    // Optional fused output meter. Audio samples are processed with the same
+    // finite-sanitized math as process(), but peak is measured while the
+    // processed samples are already in registers/cache. This avoids a second
+    // pass over all channels when the VST3 host requests output metering.
+    // Peak is normalized to [0, 1], matching the prior output queue path;
+    // overflowed nonfinite f32 output is represented as a clipped peak of 1.
+    bool processWithPeak(Block block, float& outputPeak) const noexcept {
+        outputPeak = 0.0f;
+        if (!block.valid()) return false;
+#if SKELLNATIVE_HAVE_SSE2
+        const __m128 gain4 = _mm_set1_ps(linear_);
+        const __m128 positiveMax = _mm_set1_ps(std::numeric_limits<float>::max());
+        const __m128 signBits = _mm_set1_ps(-0.0f);
+        const __m128 clip = _mm_set1_ps(1.0f);
+        __m128 peak4 = _mm_setzero_ps();
+#endif
+        for (std::size_t ch = 0; ch < block.channelCount; ++ch) {
+            float* const samples = block.channel[ch];
+            std::size_t i = 0;
+#if SKELLNATIVE_HAVE_SSE2
+            for (; block.frames - i >= 4; i += 4) {
+                const __m128 input = _mm_loadu_ps(samples + i);
+                const __m128 magnitude = _mm_andnot_ps(signBits, input);
+                const __m128 finiteMask = _mm_cmple_ps(magnitude, positiveMax);
+                const __m128 safeInput = _mm_and_ps(input, finiteMask);
+                const __m128 result = _mm_mul_ps(safeInput, gain4);
+                _mm_storeu_ps(samples + i, result);
+                const __m128 amplitude = _mm_andnot_ps(signBits, result);
+                peak4 = _mm_max_ps(peak4, _mm_min_ps(amplitude, clip));
+            }
+#endif
+            for (; i < block.frames; ++i) {
+                const float value = finiteOrZero(samples[i]) * linear_;
+                samples[i] = value;
+                const float amplitude = std::abs(value);
+                outputPeak = std::max(outputPeak,
+                    std::isfinite(amplitude) ? std::min(amplitude, 1.0f) : 1.0f);
+            }
+        }
+#if SKELLNATIVE_HAVE_SSE2
+        float lanes[4]{};
+        _mm_storeu_ps(lanes, peak4);
+        for (const float value : lanes) outputPeak = std::max(outputPeak, value);
+#endif
+        return true;
+    }
 private:
     float linear_ = 1.0f;
 };
