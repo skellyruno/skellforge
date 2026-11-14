@@ -24,7 +24,7 @@ private:
     juce::Label title_;
     juce::Label gainLabel_;
     juce::Slider gainKnob_;
-    juce::AudioProcessorValueTreeState::SliderAttachment gainAttachment_;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> gainAttachment_;
     forgeui::ExtraControls extraControls_;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(@@TARGET@@AudioProcessorEditor)
 };
