@@ -37,6 +37,7 @@ class ForgeTests(unittest.TestCase):
         self.assertIn(CORE_REV, cmake)
         self.assertNotIn("@@", cmake)
         proc = (self.project / "Source" / "PluginProcessor.cpp").read_text()
+        editor = (self.project / "Source" / "PluginEditor.cpp").read_text()
         self.assertIn("gain_db", proc)
         self.assertIn("0.0f", proc)
         self.assertIn("gain_.skip(frames)", proc)
