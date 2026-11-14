@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import struct
+import zlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,21 @@ from skellforge.preview import SCENES, PNG_SIGNATURE, verify_preview_outputs
 
 
 class PreviewValidationTests(unittest.TestCase):
+    @staticmethod
+    def _chunk(kind: bytes, payload: bytes) -> bytes:
+        crc = zlib.crc32(kind + payload) & 0xffffffff
+        return struct.pack(">I", len(payload)) + kind + payload + struct.pack(">I", crc)
+
+    @classmethod
+    def _png(cls, width: int, height: int, *, first_filter: int = 0) -> bytes:
+        """Genuine compact PNG fixture, not a fake signature-only header."""
+        ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+        row = bytes((i * 73) & 255 for i in range(width * 4))
+        raw = bytes([first_filter]) + row + (b"\0" + row) * (height - 1)
+        return (PNG_SIGNATURE + cls._chunk(b"IHDR", ihdr)
+                + cls._chunk(b"IDAT", zlib.compress(raw))
+                + cls._chunk(b"IEND", b""))
+
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -19,10 +35,7 @@ class PreviewValidationTests(unittest.TestCase):
         self.manifest = {"count": len(SCENES), "scenes": []}
         for name, (w,h) in SCENES.items():
             file = self.root / (name + ".png")
-            # Synthetic header fixture (not a decoded image); only tests the
-            # PNG signature/size checking code, not image quality.
-            file.write_bytes(PNG_SIGNATURE + b"\x00\x00\x00\x0dIHDR"
-                             + struct.pack(">II", w, h) + b"\x00" * 1200)
+            file.write_bytes(self._png(w, h))
             self.manifest["scenes"].append({"file": name + ".png", "width": w, "height": h})
         self.write_manifest()
 
@@ -35,6 +48,32 @@ class PreviewValidationTests(unittest.TestCase):
         self.assertEqual(report["type"], "real-juce-editor")
         self.assertEqual(report["sizes"]["default"], [440, 310])
 
+
+    def test_crc_corruption_is_rejected(self):
+        p = self.root / "compact.png"
+        b = bytearray(p.read_bytes())
+        b[-16] ^= 1  # damage IDAT CRC, preserve valid dimensions and header
+        p.write_bytes(b)
+        with self.assertRaisesRegex(ForgeError, "CRC mismatch"):
+            verify_preview_outputs(self.root)
+
+    def test_truncated_png_without_iend_is_rejected(self):
+        p = self.root / "compact.png"
+        p.write_bytes(p.read_bytes()[:-12])
+        with self.assertRaisesRegex(ForgeError, "missing IEND"):
+            verify_preview_outputs(self.root)
+
+    def test_invalid_decoded_scanline_filter_is_rejected(self):
+        (self.root / "compact.png").write_bytes(self._png(390, 260, first_filter=7))
+        with self.assertRaisesRegex(ForgeError, "scanline filter"):
+            verify_preview_outputs(self.root)
+
+    def test_trailing_data_after_iend_is_rejected(self):
+        p = self.root / "compact.png"
+        p.write_bytes(p.read_bytes() + b"unexpected bytes")
+        with self.assertRaisesRegex(ForgeError, "invalid IEND"):
+            verify_preview_outputs(self.root)
+
     def test_missing_screenshot_is_not_a_valid_preview(self):
         (self.root / "compact.png").unlink()
         with self.assertRaisesRegex(ForgeError, "Missing"):
@@ -44,6 +83,8 @@ class PreviewValidationTests(unittest.TestCase):
         p = self.root / "default.png"
         b = bytearray(p.read_bytes())
         b[16:24] = struct.pack(">II", 222, 333)
+        # Keep the IHDR checksum valid so dimensions are tested independently.
+        b[29:33] = struct.pack(">I", zlib.crc32(b[12:29]) & 0xffffffff)
         p.write_bytes(b)
         with self.assertRaisesRegex(ForgeError, "size mismatch"):
             verify_preview_outputs(self.root)

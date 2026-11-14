@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import shutil
 import struct
+import zlib
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +21,79 @@ from .studio import regenerate
 
 SCENES = {"compact": (390, 260), "default": (440, 310), "large": (900, 600)}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _verify_png_pixels(image: Path, width: int, height: int) -> None:
+    """Validate complete native JUCE PNGs, including CRC and decoded pixels.
+
+    This deliberately accepts JUCE's 8-bit, non-interlaced RGB/RGBA output.
+    It is not a general-purpose PNG decoder or a visual design-quality test.
+    """
+    payload = image.read_bytes()
+    if not (64 <= len(payload) <= 16 * 1024 * 1024) or not payload.startswith(PNG_SIGNATURE):
+        raise ForgeError("Corrupt PNG signature or file size")
+    position = len(PNG_SIGNATURE)
+    seen_header = seen_pixels = seen_end = False
+    idat_finished = False
+    compressed = bytearray()
+    channels = None
+    while position < len(payload):
+        if len(payload) - position < 12:
+            raise ForgeError("Corrupt PNG: truncated chunk header")
+        length = struct.unpack_from(">I", payload, position)[0]
+        stop = position + 12 + length
+        if stop > len(payload):
+            raise ForgeError("Corrupt PNG: truncated chunk payload")
+        chunk_type = payload[position + 4:position + 8]
+        data = payload[position + 8:stop - 4]
+        supplied_crc = struct.unpack_from(">I", payload, stop - 4)[0]
+        if (zlib.crc32(chunk_type + data) & 0xffffffff) != supplied_crc:
+            raise ForgeError("Corrupt PNG: chunk CRC mismatch")
+        if not seen_header:
+            if chunk_type != b"IHDR" or length != 13:
+                raise ForgeError("Corrupt PNG: missing IHDR")
+            seen_header = True
+            actual_width, actual_height, depth, color, compression, filtering, interlace = (
+                struct.unpack(">IIBBBBB", data))
+            if (actual_width, actual_height) != (width, height):
+                raise ForgeError("PNG image size mismatch")
+            if (depth != 8 or color not in (2, 6) or compression != 0
+                    or filtering != 0 or interlace != 0):
+                raise ForgeError("Unsupported real-editor PNG encoding")
+            channels = 3 if color == 2 else 4
+        elif chunk_type == b"IHDR":
+            raise ForgeError("Corrupt PNG: duplicate IHDR")
+        elif chunk_type == b"IDAT":
+            if idat_finished or length == 0:
+                raise ForgeError("Corrupt PNG: invalid or reordered IDAT")
+            seen_pixels = True
+            compressed.extend(data)
+        elif chunk_type == b"IEND":
+            if length or not seen_pixels or stop != len(payload):
+                raise ForgeError("Corrupt PNG: invalid IEND")
+            seen_end = True
+            break
+        elif chunk_type[0] & 0x20 == 0:
+            # Only true-color IHDR/IDAT/IEND critical chunks are supported.
+            # Ancillary metadata such as JUCE's sBIT is permitted.
+            raise ForgeError("Corrupt PNG: unexpected critical chunk")
+        if seen_pixels and chunk_type != b"IDAT":
+            idat_finished = True
+        position = stop
+    if not seen_end:
+        raise ForgeError("Corrupt PNG: missing IEND")
+    stride = 1 + width * channels
+    expected = height * stride
+    try:
+        inflater = zlib.decompressobj()
+        pixels = inflater.decompress(bytes(compressed), expected + 1)
+    except zlib.error as exc:
+        raise ForgeError("Corrupt PNG: invalid IDAT compression") from exc
+    if (len(pixels) != expected or not inflater.eof or inflater.unused_data
+            or inflater.unconsumed_tail):
+        raise ForgeError("Corrupt PNG: incomplete or oversized pixel stream")
+    if any(pixels[i] > 4 for i in range(0, expected, stride)):
+        raise ForgeError("Corrupt PNG: invalid scanline filter")
 
 
 def verify_preview_outputs(folder: Path) -> dict:
@@ -59,13 +133,7 @@ def verify_preview_outputs(folder: Path) -> dict:
         image = folder / name
         if not image.is_file() or image.is_symlink() or image.stat().st_size < 1024:
             raise ForgeError(f"Missing, linked or empty UI screenshot: {name}")
-        with image.open("rb") as stream:
-            header = stream.read(24)
-        if len(header) < 24 or header[:8] != PNG_SIGNATURE or header[12:16] != b"IHDR":
-            raise ForgeError(f"Corrupt PNG signature in {name}")
-        png_width, png_height = struct.unpack(">II", header[16:24])
-        if (png_width, png_height) != (width, height):
-            raise ForgeError(f"PNG image size mismatch in {name}")
+        _verify_png_pixels(image, width, height)
         results[scene] = str(image.resolve())
     if set(results) != set(SCENES):
         raise ForgeError("Required real-editor scenes were not all captured")
