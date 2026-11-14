@@ -5,6 +5,81 @@
 #include <JuceHeader.h>
 #include <SkellCore/HeadlessUIRenderer.h>
 #include <cstdio>
+#include <cmath>
+#include <vector>
+
+
+// Headless GUI-thread regression: exercise the real SliderAttachments.
+// A valid-looking screenshot is not proof that a knob changes any host parameter.
+static juce::StringArray verifyControlBindings(
+    juce::AudioProcessorEditor& editor, juce::AudioProcessor& processor) {
+    juce::StringArray errors;
+    auto parameterValues = [&processor] {
+        std::vector<float> result;
+        for (auto* param : processor.getParameters())
+            result.push_back(param->getValue());
+        return result;
+    };
+
+    const auto* allParameters = &processor.getParameters();
+    if (allParameters->isEmpty())
+        errors.add("No automatable parameters found");
+    int checked = 0;
+    for (int i = 0; i < editor.getNumChildComponents(); ++i) {
+        auto* slider = dynamic_cast<juce::Slider*>(editor.getChildComponent(i));
+        if (slider == nullptr || !slider->isVisible())
+            continue;
+        ++checked;
+        const double low = slider->getMinimum();
+        const double high = slider->getMaximum();
+        const double initial = slider->getValue();
+        if (!std::isfinite(low) || !std::isfinite(high) || !std::isfinite(initial)
+            || high <= low) {
+            errors.add("Invalid slider range: " + slider->getName());
+            continue;
+        }
+        const double step = (high - low) * 0.20;
+        const double next = initial + step <= high ? initial + step : initial - step;
+        const auto before = parameterValues();
+        slider->setValue(next, juce::sendNotificationSync);
+        const auto after = parameterValues();
+        bool changed = false;
+        for (size_t p = 0; p < before.size() && p < after.size(); ++p)
+            changed = changed || std::abs(after[p] - before[p]) > 0.0001f;
+        if (!changed)
+            errors.add("Unbound JUCE slider: " + slider->getName());
+        slider->setValue(initial, juce::sendNotificationSync);
+    }
+    if (checked == 0)
+        errors.add("No visible JUCE sliders to test");
+    std::printf("SkellForge checked %d real JUCE slider bindings\n", checked);
+    return errors;
+}
+
+// Host-independent persistence gate; FL Studio session/automation tests remain
+// necessary before releasing a plugin.
+static juce::StringArray verifyStateRoundTrip(@@TARGET@@AudioProcessor& processor) {
+    juce::StringArray errors;
+    auto* gain = processor.parameters.getParameter("gain_db");
+    if (gain == nullptr) {
+        errors.add("Missing stable gain_db parameter");
+        return errors;
+    }
+    const float original = gain->getValue();
+    juce::MemoryBlock snapshot;
+    processor.getStateInformation(snapshot);
+    if (snapshot.getSize() < 16) {
+        errors.add("Generated plugin state snapshot is empty");
+        return errors;
+    }
+    gain->setValueNotifyingHost(original < 0.5f ? 0.8f : 0.2f);
+    if (std::abs(gain->getValue() - original) < 0.05f)
+        errors.add("Gain parameter refused a host-style change");
+    processor.setStateInformation(snapshot.getData(), static_cast<int>(snapshot.getSize()));
+    if (std::abs(gain->getValue() - original) > 0.015f)
+        errors.add("Saved gain state did not restore");
+    return errors;
+}
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI init;
@@ -42,7 +117,13 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "UI preview: %s\n", issue.toRawUTF8());
     std::printf("SkellForge captured %d of %zu real-editor scenes\n",
                 report.captured, options.scenes.size());
+    const auto bindingIssues = verifyControlBindings(editor, processor);
+    const auto stateIssues = verifyStateRoundTrip(processor);
+    for (const auto& issue : bindingIssues)
+        std::fprintf(stderr, "UI binding regression: %s\n", issue.toRawUTF8());
+    for (const auto& issue : stateIssues)
+        std::fprintf(stderr, "State round-trip regression: %s\n", issue.toRawUTF8());
     processor.releaseResources();
     return report.passed() && report.captured == static_cast<int>(options.scenes.size())
-        ? 0 : 1;
+        && bindingIssues.isEmpty() && stateIssues.isEmpty() ? 0 : 1;
 }

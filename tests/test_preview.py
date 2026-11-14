@@ -74,6 +74,17 @@ class PreviewValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ForgeError, "invalid IEND"):
             verify_preview_outputs(self.root)
 
+    def test_real_editor_runtime_contract(self):
+        template = Path(__file__).resolve().parents[1] / "templates" / "tests" / "ForgeUIRender.cpp.in"
+        source = template.read_text(encoding="utf-8")
+        self.assertIn("verifyControlBindings", source)
+        self.assertIn("sendNotificationSync", source)
+        self.assertIn("getParameters()", source)
+        self.assertIn("verifyStateRoundTrip", source)
+        self.assertIn("getStateInformation(snapshot)", source)
+        self.assertIn("setStateInformation(snapshot.getData()", source)
+        self.assertIn("bindingIssues.isEmpty() && stateIssues.isEmpty()", source)
+
     def test_missing_screenshot_is_not_a_valid_preview(self):
         (self.root / "compact.png").unlink()
         with self.assertRaisesRegex(ForgeError, "Missing"):
