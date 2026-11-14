@@ -1,0 +1,95 @@
+cmake_minimum_required(VERSION 3.25)
+project(SkellNativeGain VERSION 0.1.0 LANGUAGES C CXX)
+
+if(NOT WIN32 OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+  message(FATAL_ERROR "SkellNative direct VST3 prototype targets Windows x64 only")
+endif()
+
+# Pin the MIT-licensed official Steinberg 3.8.1 SDK with its submodules.
+# Existing local SDK source avoids network on subsequent builds.
+set(SKELLNATIVE_STEINBERG_SDK "" CACHE PATH "Local complete VST3 SDK checkout")
+set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "" FORCE)
+set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES ON CACHE BOOL "" FORCE) # official validator
+set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
+
+if(SKELLNATIVE_STEINBERG_SDK)
+  if(NOT EXISTS "${SKELLNATIVE_STEINBERG_SDK}/CMakeLists.txt" OR
+     NOT EXISTS "${SKELLNATIVE_STEINBERG_SDK}/public.sdk/CMakeLists.txt" OR
+     NOT EXISTS "${SKELLNATIVE_STEINBERG_SDK}/pluginterfaces/CMakeLists.txt")
+    message(FATAL_ERROR "SDK path must be a COMPLETE recursive VST3 SDK checkout")
+  endif()
+  set(SDK_ROOT "${SKELLNATIVE_STEINBERG_SDK}")
+  add_subdirectory("${SDK_ROOT}" "${CMAKE_CURRENT_BINARY_DIR}/steinberg")
+else()
+  include(FetchContent)
+  FetchContent_Declare(
+    skell_steinberg_sdk
+    GIT_REPOSITORY https://github.com/steinbergmedia/vst3sdk.git
+    GIT_TAG 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+    GIT_SHALLOW FALSE
+    GIT_SUBMODULES_RECURSE TRUE
+  )
+  FetchContent_MakeAvailable(skell_steinberg_sdk)
+  set(SDK_ROOT "${skell_steinberg_sdk_SOURCE_DIR}")
+endif()
+
+add_library(SkellNativeDSP INTERFACE)
+target_include_directories(SkellNativeDSP INTERFACE
+  "${CMAKE_CURRENT_LIST_DIR}/../include")
+target_compile_features(SkellNativeDSP INTERFACE cxx_std_17)
+
+# Shared host-neutral SkellDraw semantic controls + Win32 drawing adapter.
+add_library(SkellDrawControls INTERFACE)
+target_include_directories(SkellDrawControls INTERFACE
+  "${CMAKE_CURRENT_LIST_DIR}/../skelldraw/include")
+target_compile_features(SkellDrawControls INTERFACE cxx_std_17)
+
+smtg_add_vst3plugin(SkellNativeGain
+  Source/NativeGainProcessor.cpp
+  Source/NativeGainController.cpp
+  Source/NativeGainFactory.cpp
+  Source/NativeGainIDs.h
+  Source/NativeGainStateBridge.h
+  Source/SkellDrawWin32.h
+  Source/SkellDrawWin32.cpp
+)
+target_compile_features(SkellNativeGain PRIVATE cxx_std_17)
+target_include_directories(SkellNativeGain PRIVATE "${CMAKE_CURRENT_LIST_DIR}/Source")
+target_link_libraries(SkellNativeGain PRIVATE sdk SkellNativeDSP SkellDrawControls user32 gdi32)
+
+# Independent actual HWND attach, paint, resizing and input smoke.
+add_executable(SkellDrawUiSmoke
+  tests/SkellDrawUiSmoke.cpp
+  Source/SkellDrawWin32.h
+  Source/SkellDrawWin32.cpp
+)
+target_compile_features(SkellDrawUiSmoke PRIVATE cxx_std_17)
+# Only profiling smoke pays for high-resolution timers and counter updates.
+# The real SkellNativeGain VST3 deliberately omits this definition.
+target_compile_definitions(SkellDrawUiSmoke PRIVATE SKELLDRAW_PROFILE=1)
+target_include_directories(SkellDrawUiSmoke PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/Source")
+target_link_libraries(SkellDrawUiSmoke PRIVATE sdk SkellDrawControls user32 gdi32)
+
+
+
+# Actual VST3 IAudioProcessor adapter (not merely the DSP kernel), compiled
+# from the exact same source as the native VST3 binary. Separate executable
+# models process data / sample-offset queues / meter outputs in memory.
+add_executable(SkellNativeVst3AdapterBench
+  tests/SkellNativeVst3AdapterBench.cpp
+  Source/NativeGainProcessor.cpp
+  Source/NativeGainIDs.h
+  Source/NativeGainStateBridge.h
+  "${SDK_ROOT}/public.sdk/source/vst/hosting/parameterchanges.cpp"
+)
+target_compile_features(SkellNativeVst3AdapterBench PRIVATE cxx_std_17)
+target_include_directories(SkellNativeVst3AdapterBench PRIVATE
+  "${CMAKE_CURRENT_LIST_DIR}/Source")
+target_link_libraries(SkellNativeVst3AdapterBench PRIVATE sdk SkellNativeDSP)
+if(MSVC)
+  target_compile_options(SkellNativeVst3AdapterBench PRIVATE /O2 /W4)
+endif()
+
+# Host validator and real FL Studio session tests are separate release gates.

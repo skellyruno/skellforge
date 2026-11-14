@@ -13,13 +13,19 @@ Sources:
 ## What currently works?
 - Studio design documents, parameter identity registry, validation, project
   generation, and build orchestration: Python, already independent of JUCE.
-- native/ contains a real JUCE-FREE C++17 DSP-only foundation: gain,
-  saturation, lowpass and peak measurement, separate CMake/CTest on Windows
-  and Linux. THIS IS NOT A DIRECT-VST3 WRAPPER.
-- The current generated VST3 still uses JUCE for plugin factory, processing
-  host adapter, APVTS, editing, and actual UI rendering.
-- Native host automation, GUI embedding, sample-rate negotiation,
-  parameter state, and VST3 factory/lifecycle are not yet implemented.
+- native/ contains JUCE-free C++17 gain/saturation/lowpass and peak
+  measurement, source SDK contract, and bounded parameter-state snapshots.
+- native/vst3 now contains a **working direct Steinberg SDK Windows gain
+  prototype**. It builds a VST3 without JUCE: processor/controller factory,
+  32/64-bit mono/stereo audio, sample-offset automation, versioned state and
+  zero reported algorithmic latency.
+- Official Steinberg validator: **47 tests passed, zero failed** in
+  https://github.com/skellyruno/skellforge/actions/runs/43279118372
+  (includes block-span audio-thread optimization). Python regression suites
+  and independent C++ DSP tests passed on Windows and Linux.
+- The regular SkellForge visual VST3 generator still uses JUCE and SkellCore.
+  **The native prototype has no embedded editor, no general native Studio
+  exporter, and has not been tested in FL Studio.**
 
 ## Intended architecture
 
@@ -34,6 +40,25 @@ JUCE or direct VST3 should not silently change the sound, preset IDs, latency,
 host state, or plugin identity.
 
 ## Milestones
+
+### Passed experimental gate — November 12, 2026
+- Direct VST3 Windows x64 compile, SDK factory/buses, PE32+ bundle and
+  the official 47-test Steinberg validator: **PASS**.
+- Block-span gain automation (instead of one native DSP call per sample):
+  **PASS** in Windows/Linux C++ and official host-validator checks.
+- This demonstrates the native architecture is possible. It does **not**
+  prove lower CPU than JUCE, a finished SkellDraw editor, or host compatibility
+  with saved FL Studio sessions.
+
+### Remaining gates before enabling a SkellNative backend in Studio
+- Load several plugin instances in FL Studio; save/reopen, automation
+  playback at varying buffer sizes, project restart and clean removal.
+- Measure CPU, latency, state recall and signal parity against a matched
+  JUCE gain plugin; stress test silence, low notes and extreme sample values.
+- Build optional native editor and host DPI/scale/resize handling.
+- Finalize plugin identity/migration rules and SkellNative SDK binary ABI
+  before publishing a third-party developer interface.
+
 1. Extract portable CPU-efficient audio modules, implement impulse, reference
    WAV, NaN/denormal, multirate, low-end CPU, and parity tests.
 2. Implement a minimal Windows x64 plugin with Steinberg VST3 SDK alone.
