@@ -26,3 +26,5 @@ jobs:
         run: |
           python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
           python -m skellforge validate generated-smoke
+      - name: Audit generated sample
+        run: python -m skellforge audit generated-smoke

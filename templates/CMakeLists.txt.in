@@ -6,7 +6,12 @@ if(NOT WIN32)
 endif()
 
 include(FetchContent)
-if(DEFINED JUCE_PATH AND EXISTS "${JUCE_PATH}/CMakeLists.txt")
+# An explicit local path that is wrong must fail loudly, never silently download instead.
+# (Plain if(VAR) would treat values such as OFF, 0 or NO as "unset"; an empty value means "download".)
+if(DEFINED JUCE_PATH AND NOT "${JUCE_PATH}" STREQUAL "")
+  if(NOT EXISTS "${JUCE_PATH}/CMakeLists.txt")
+    message(FATAL_ERROR "JUCE_PATH does not contain a CMakeLists.txt: ${JUCE_PATH}")
+  endif()
   add_subdirectory("${JUCE_PATH}" "${CMAKE_BINARY_DIR}/juce")
 else()
   FetchContent_Declare(JUCE GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
@@ -14,10 +19,15 @@ else()
   FetchContent_MakeAvailable(JUCE)
 endif()
 
-if(DEFINED SKELLCORE_PATH AND EXISTS "${SKELLCORE_PATH}/SkellCore/CMakeLists.txt")
-  add_subdirectory("${SKELLCORE_PATH}/SkellCore" "${CMAKE_BINARY_DIR}/skellcore")
-elseif(DEFINED SKELLCORE_PATH AND EXISTS "${SKELLCORE_PATH}/CMakeLists.txt")
-  add_subdirectory("${SKELLCORE_PATH}" "${CMAKE_BINARY_DIR}/skellcore")
+if(DEFINED SKELLCORE_PATH AND NOT "${SKELLCORE_PATH}" STREQUAL "")
+  if(EXISTS "${SKELLCORE_PATH}/SkellCore/CMakeLists.txt")
+    add_subdirectory("${SKELLCORE_PATH}/SkellCore" "${CMAKE_BINARY_DIR}/skellcore")
+  elseif(EXISTS "${SKELLCORE_PATH}/CMakeLists.txt")
+    add_subdirectory("${SKELLCORE_PATH}" "${CMAKE_BINARY_DIR}/skellcore")
+  else()
+    message(FATAL_ERROR
+      "SKELLCORE_PATH must contain SkellCore/CMakeLists.txt or CMakeLists.txt: ${SKELLCORE_PATH}")
+  endif()
 else()
   FetchContent_Declare(SkellCore
     GIT_REPOSITORY @@CORE_REPO@@
