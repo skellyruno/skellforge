@@ -13,6 +13,7 @@ private:
     struct ThemeButton final : juce::Button {
         ThemeButton() : juce::Button("Theme") {
             setMouseCursor(juce::MouseCursor::PointingHandCursor);
+            setWantsKeyboardFocus(true);
             setTooltip("Click to change the theme");
         }
         void paintButton(juce::Graphics& g, bool isMouseOver, bool isButtonDown) override {
