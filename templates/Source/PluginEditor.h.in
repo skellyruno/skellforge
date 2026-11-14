@@ -16,16 +16,20 @@ private:
             setWantsKeyboardFocus(true);
             setTooltip("Click to change the theme");
         }
+        void setIvoryTheme(bool ivory) { ivoryTheme_ = ivory; repaint(); }
         void paintButton(juce::Graphics& g, bool isMouseOver, bool isButtonDown) override {
+            const auto indicator = ivoryTheme_ ? juce::Colours::black : juce::Colours::white;
             if (isMouseOver || isButtonDown) {
-                g.setColour(juce::Colours::white.withAlpha(isButtonDown ? 0.14f : 0.07f));
+                g.setColour(indicator.withAlpha(isButtonDown ? 0.14f : 0.07f));
                 g.fillRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), 5.0f);
             }
             if (hasKeyboardFocus(true)) {
-                g.setColour(juce::Colours::white.withAlpha(0.9f));
+                g.setColour(indicator.withAlpha(0.9f));
                 g.drawRoundedRectangle(getLocalBounds().toFloat().reduced(2.0f), 5.0f, 2.0f);
             }
         }
+    private:
+        bool ivoryTheme_ = false;
     };
     void changeSkin();
     skellcore::ui::StudioLookAndFeel skin_{skellcore::ui::StudioSkin::Obsidian};
