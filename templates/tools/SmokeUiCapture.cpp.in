@@ -1,9 +1,10 @@
 // Actual generated SkellForge Smoke JUCE AudioProcessorEditor QA renderer.
 // Opt-in, hostless visual acceptance tool. Never linked into a VST3 bundle.
-#include "PluginEditor.h"
+#include "../Source/PluginEditor.h"
 #include <JuceHeader.h>
 #include <SkellCore/StudioUI.h>
 #include <cstdio>
+#include <cmath>
 #include <memory>
 
 namespace {
