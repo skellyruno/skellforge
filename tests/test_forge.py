@@ -41,6 +41,24 @@ class ForgeTests(unittest.TestCase):
         self.assertIn("0.0f", proc)
         self.assertIn("gain_.skip(frames)", proc)
 
+    def test_headless_preview_initialization_contract(self):
+        """Prevent native UI preview access violations from resizer/APVTS setup."""
+        self.make()
+        generated = self.project / "Source"
+        editor = (generated / "PluginEditor.cpp").read_text(encoding="utf-8")
+        header = (generated / "PluginEditor.h").read_text(encoding="utf-8")
+        cmake = (self.project / "CMakeLists.txt").read_text(encoding="utf-8")
+        # The preview is a headless console process: host-window resize
+        # helpers must only be active inside a real plugin editor.
+        self.assertIn("SKELLFORGE_HEADLESS_PREVIEW=1", cmake)
+        self.assertIn("#if !defined(SKELLFORGE_HEADLESS_PREVIEW)", editor)
+        self.assertIn("setResizable(true, true)", editor)
+        # Do not install the APVTS slider attachment before the editor's
+        # knob and LookAndFeel have been fully configured.
+        self.assertIn("std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>", header)
+        self.assertIn("gainAttachment_ = std::make_unique", editor)
+        self.assertNotIn("gainAttachment_(processor.parameters", editor)
+
     def test_output_is_not_overwritten(self):
         self.make()
         original = (self.project / "skellforge.json").read_bytes()

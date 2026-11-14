@@ -1,0 +1,12 @@
+# SkellLang 0.1 - first declarative Skelly plugin design
+# This compiles to the same Studio JSON model as the visual editor.
+skell 1
+
+canvas 440 310
+fx saturate warmth 2.5 on
+fx lowpass tone 8500 on
+
+knob drive_knob warmth "DRIVE" 18 128 105 110
+knob tone_knob tone "TONE" 315 128 105 110
+meter output_meter "OUT" 20 270 155 22
+text brand_label "SKELLY / SKELLFORGE" 192 270 212 22

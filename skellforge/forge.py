@@ -287,6 +287,19 @@ def parser() -> argparse.ArgumentParser:
     preview.add_argument("project", type=Path)
     preview.add_argument("--juce-path", type=Path)
     preview.add_argument("--core-path", type=Path)
+    lang_check = sub.add_parser("lang-check", help="Validate SkellLang source without changing any project")
+    lang_check.add_argument("source", type=Path)
+    lang_export = sub.add_parser("lang-export", help="Compile SkellLang to validated JSON; never overwrite output")
+    lang_export.add_argument("source", type=Path)
+    lang_export.add_argument("destination", type=Path)
+    lang_from = sub.add_parser("lang-from-studio", help="Losslessly export a saved Studio project as .skell source")
+    lang_from.add_argument("project", type=Path)
+    lang_from.add_argument("destination", type=Path)
+    lang_new = sub.add_parser("lang-new", help="Generate a brand new plugin from SkellLang source")
+    lang_new.add_argument("source", type=Path)
+    lang_new.add_argument("name")
+    lang_new.add_argument("destination", type=Path)
+    lang_new.add_argument("--code", required=True)
     edit = sub.add_parser("studio", help="Launch local desktop visual studio")
     export = sub.add_parser("regenerate", help="Validate saved Studio UI/DSP and generate C++ headers")
     export.add_argument("project", type=Path)
@@ -331,6 +344,32 @@ def main(argv: list[str] | None = None) -> int:
                                       core_path=args.core_path, parallel=args.parallel,
                                       log=print)
             print("Exported: " + output["archive"])
+        elif args.action == "lang-check":
+            from .skelllang import compile_file
+            model = compile_file(args.source)
+            print(f"VALID SkellLang 1: {len(model['chain'])} DSP nodes / "
+                  f"{len(model['components'])} UI components")
+        elif args.action == "lang-export":
+            from .skelllang import export_json
+            print(f"Compiled SkellLang: {export_json(args.source, args.destination)}")
+        elif args.action == "lang-from-studio":
+            from .skelllang import export_from_studio
+            print("Exported SkellLang: " + str(export_from_studio(args.project, args.destination)))
+        elif args.action == "lang-new":
+            from .skelllang import compile_file
+            from .studio import save_studio
+            model = compile_file(args.source)  # fail without creating output
+            project = create_project(args.name, args.destination, args.code)
+            try:
+                save_studio(project, model)
+                regenerate(project)
+                validate_project(project)
+            except BaseException:
+                # Only delete the folder this command just created, never an
+                # existing path or project supplied by the user.
+                shutil.rmtree(project)
+                raise
+            print(f"Created SkellLang plugin: {project}")
         elif args.action == "regenerate":
             print("Regenerated: " + (", ".join(regenerate(args.project)) or "already current"))
         elif args.action == "preview":
