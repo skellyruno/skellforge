@@ -40,6 +40,10 @@ class ForgeTests(unittest.TestCase):
         self.assertIn("gain_db", proc)
         self.assertIn("0.0f", proc)
         self.assertIn("gain_.skip(frames)", proc)
+        # Studio text labels must never collide with fixed branding in a real render.
+        self.assertNotIn('g.drawFittedText("SKELLFORGE / VST3"', editor)
+        self.assertIn("forgeui::drawLabels(", editor)
+        self.assertNotIn("FORGE_EDITOR_DIAG", editor)
 
     def test_headless_preview_initialization_contract(self):
         """Prevent native UI preview access violations from resizer/APVTS setup."""

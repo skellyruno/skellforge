@@ -90,10 +90,10 @@ def render_ui(data: dict, header: str) -> str:
             "        {\n",
             "            auto knob = std::make_unique<juce::Slider>();\n",
             f"            knob->setName({_literal(c.get('text', c['id']))});\n",
+            f"            skellcore::ui::configureStudioKnob(*knob, {specs[c['parameter_id']]['default']:.9g});\n",
             "            parent.addAndMakeVisible(*knob);\n",
             f"            auto attachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>"
             f"(state, {_literal(c['parameter_id'])}, *knob);\n",
-            f"            skellcore::ui::configureStudioKnob(*knob, {specs[c['parameter_id']]['default']:.9g});\n",
             "            knobs_.push_back(std::move(knob));\n",
             "            attachments_.push_back(std::move(attachment));\n",
             "        }\n",

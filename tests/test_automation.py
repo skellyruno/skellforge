@@ -70,6 +70,9 @@ class AutomationTests(unittest.TestCase):
         ui = (self.project / "Source" / "ForgeUI.h").read_text()
         self.assertIn('state, "fx_saturate_1_drive", *knob', ui)
         self.assertIn("configureStudioKnob(*knob, 2", ui)
+        # Configure the slider before the APVTS attachment can deliver callbacks.
+        self.assertLess(ui.index("configureStudioKnob(*knob, 2"),
+                        ui.index('state, "fx_saturate_1_drive", *knob'))
         self.assertIn("std::vector<std::unique_ptr<juce::Slider>>", ui)
         params = (self.project / "Source" / "ForgeParameters.h").read_text()
         self.assertIn('ParameterID{"fx_saturate_1_drive", 1}', params)
