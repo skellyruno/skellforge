@@ -55,6 +55,7 @@ void @@TARGET@@AudioProcessorEditor::changeSkin() {
         : skellcore::ui::StudioSkin::Obsidian;
     setLookAndFeel(nullptr);
     skin_.setSkin(next);
+    themeButton_.setIvoryTheme(next == skellcore::ui::StudioSkin::Ivory);
     setLookAndFeel(&skin_);
     repaint();
 }
