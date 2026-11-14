@@ -47,3 +47,25 @@ not an invented animation.
 The first hardware-specific confirmation will be a repeated Ryzen
 v0.4/v0.5 adapter test with the same buffer, compiler and host settings.
 No CPU or latency advantage across complete DAWs is claimed yet.
+
+
+## Repeat the adapter benchmark on the Ryzen laptop
+
+Once this PR is validated and merged, from the already-cloned SkellForge
+checkout use PowerShell:
+
+    git pull --ff-only
+    powershell -NoProfile -ExecutionPolicy Bypass -File .\native\vst3\tools\Run-AdapterBenchmark.ps1
+
+The script auto-detects CMake bundled with Visual Studio using vswhere.exe
+(the same detection as the working gain/JUCE runner). It builds the real
+VST3 adapter benchmark in Release x64 with --parallel 2, verifies all 72
+scenarios and writes clean CSV to
+Desktop\SkellNative_VST3_Adapter_Local.csv. Nothing is installed into FL
+Studio and no project is modified.
+
+The v0.4 Windows CI adapter baseline is archived as GitHub Actions
+artifact in run 43559488119. Compare it with the v0.5 CI benchmark only
+as directional evidence; local measured data should be collected repeatedly
+under consistent thermal and background-load conditions before claiming
+a measured Ryzen speedup.

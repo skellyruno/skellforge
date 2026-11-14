@@ -16,6 +16,14 @@ class FusedMeterTests(unittest.TestCase):
         self.assertIn("std::memcmp(&x,&y,sizeof(float))",suite)
         self.assertIn("SKELLNATIVE_DISABLE_SIMD=1",
                       (ROOT/"native/CMakeLists.txt").read_text(encoding="utf-8"))
+    def test_local_adapter_runner_is_noninstalling(self):
+        script=(ROOT/"native/vst3/tools/Run-AdapterBenchmark.ps1").read_text(encoding="utf-8")
+        for required in ("Find-CMake","vswhere.exe","SkellNativeVst3AdapterBench",
+                         "Expected 72","--parallel 2","Import-Csv"):
+            self.assertIn(required,script)
+        for forbidden in ("Remove-Item","Stop-Process","Program Files/Common Files"):
+            self.assertNotIn(forbidden,script)
+
     def test_gain_state_and_parameter_ids_unchanged(self):
         ids=(ROOT/"native/vst3/Source/NativeGainIDs.h").read_text(encoding="utf-8")
         bridge=(ROOT/"native/vst3/Source/NativeGainStateBridge.h").read_text(encoding="utf-8")
