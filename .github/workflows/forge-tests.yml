@@ -5,6 +5,12 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+# Give manual, main, production, release and tag runs unique concurrency
+# groups so a later feature push can never cancel or replace them.
+# Deduplicate only superseded feature/fix branches and pull requests.
+concurrency:
+  group: ${{ github.workflow }}-${{ (github.event_name == 'workflow_dispatch' || github.ref_name == 'main' || github.ref_name == 'production' || github.ref_type == 'tag' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/production/')) && github.run_id || (github.head_ref || github.ref_name) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name != 'main' && github.ref_name != 'production' && !startsWith(github.ref, 'refs/heads/release/') && !startsWith(github.ref, 'refs/heads/production/')) }}
 jobs:
   python:
     strategy:
@@ -14,8 +20,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Test generator, IDs and VST3 packaging
