@@ -273,7 +273,67 @@ static bool testFiniteSafeGainAcrossVectorBoundaries() {
     return true;
 }
 
+static bool testFusedGainOutputMeterParity() {
+    // Exact output samples against non-metered gain and independent
+    // post-processing peak reference. Both SIMD and scalar-only builds run.
+    const std::array<std::size_t,10> lengths{{0,1,2,3,4,5,7,16,65,129}};
+    const std::array<float,5> linearGains{{0.f,0.5f,1.f,2.f,4.f}};
+    for (auto frames:lengths) {
+        for(std::size_t channels:{1u,2u}) {
+            for(float gainValue:linearGains) {
+                std::vector<float> inputL(frames+2,0.f),inputR(frames+2,0.f);
+                for(std::size_t i=0;i<frames;++i) {
+                    float sample=static_cast<float>(0.049*double(i)-0.8);
+                    switch (i%11) {
+                        case 0: sample=std::numeric_limits<float>::quiet_NaN();break;
+                        case 1: sample=std::numeric_limits<float>::infinity();break;
+                        case 2: sample=-std::numeric_limits<float>::infinity();break;
+                        case 3: sample=std::numeric_limits<float>::max();break;
+                        case 4: sample=-std::numeric_limits<float>::max();break;
+                        case 5: sample=std::numeric_limits<float>::denorm_min();break;
+                        case 6: sample=-0.0f;break;
+                    }
+                    inputL[i+1]=sample;
+                    inputR[i+1]=-sample;
+                }
+                auto expectedL=inputL,expectedR=inputR;
+                auto actualL=inputL,actualR=inputR;
+                Gain gain;
+                gain.setLinear(gainValue);
+                Block expected{{{expectedL.data()+1,expectedR.data()+1}},channels,frames};
+                Block actual{{{actualL.data()+1,actualR.data()+1}},channels,frames};
+                if(!gain.process(expected)) return false;
+                float fusedPeak=-1.0f;
+                if(!gain.processWithPeak(actual,fusedPeak)) return false;
+                float referencePeak=0.f;
+                for(std::size_t ch=0;ch<channels;++ch) {
+                    for(std::size_t i=0;i<frames;++i) {
+                        const float x=(ch==0 ? expectedL[i+1] : expectedR[i+1]);
+                        const float y=(ch==0 ? actualL[i+1] : actualR[i+1]);
+                        if(std::memcmp(&x,&y,sizeof(float))!=0) return false;
+                        const float absolute=std::abs(x);
+                        referencePeak=std::max(referencePeak,
+                            std::isfinite(absolute)?std::min(absolute,1.0f):1.0f);
+                    }
+                }
+                if(std::abs(fusedPeak-referencePeak)>1e-6f) return false;
+                if(actualL.front()!=0.f || actualL.back()!=0.f) return false;
+            }
+        }
+    }
+    Gain gain;
+    float peak=123.f;
+    if (gain.processWithPeak(Block{{{nullptr,nullptr}},2,4},peak))
+        return false;
+    if(peak!=0.f) return false;
+    return true;
+}
+
 int main() {
+    if (!testFusedGainOutputMeterParity()) {
+        std::fprintf(stderr, "SkellNative fused gain peak exact-parity regression failed\n");
+        return 1;
+    }
     if (!testFiniteSafeGainAcrossVectorBoundaries()) {
         std::fprintf(stderr, "SkellNative finite-safe vector gain parity failed\n");
         return 1;
