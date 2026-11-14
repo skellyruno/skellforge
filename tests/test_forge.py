@@ -45,6 +45,7 @@ class ForgeTests(unittest.TestCase):
         header = (self.project / "Source" / "PluginEditor.h").read_text()
         self.assertIn("ThemeButton themeButton_", header)
         self.assertIn("hasKeyboardFocus(true)", header)
+        self.assertIn("setWantsKeyboardFocus(true)", header)
         self.assertIn("isMouseOver || isButtonDown", header)
         self.assertIn("setResizeLimits(390, 260, 900, 600)", editor)
         self.assertIn("gain_db", proc)
