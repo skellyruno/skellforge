@@ -63,8 +63,9 @@ workflow, which can build a downloadable VST3 without your local machine.
 ## Limits
 
 This is a **development milestone**, not a validated shipping-grade DSP framework.
-The existing SkellCore skull-key symbol is temporary until the final approved
-Skelly skull is shared. Generated plugin project IDs must be locked before
+The SkellForge Smoke/generated starter displays a **provisional skull-only head**
+(the key has been removed). This does not change Skell Key, any existing plugin
+icon, or SkellCore's master asset. Final skull artwork remains unapproved. Generated plugin project IDs must be locked before
 shipping; a standalone build is intentionally NOT created.
 
 A successful CI compile does not prove FL Studio compatibility, CPU performance,

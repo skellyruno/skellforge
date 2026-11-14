@@ -1,5 +1,28 @@
 #include "PluginEditor.h"
 
+// Provisional Forge starter icon: just the original skull head, no Skell Key shaft
+// or teeth. This is local to newly generated starter UIs; it does not replace
+// any existing plugin's artwork and is not the approved master Skelly skull.
+namespace {
+void drawProvisionalSkullOnly(juce::Graphics& g, float x, float y,
+                              juce::Colour bone, juce::Colour cutout) {
+    g.setColour(bone);
+    g.fillEllipse(x + 1.0f, y, 25.0f, 23.0f);
+    g.fillRoundedRectangle(x + 6.5f, y + 17.0f, 14.0f, 11.0f, 3.0f);
+
+    g.setColour(cutout);
+    g.fillEllipse(x + 6.2f, y + 8.4f, 6.4f, 6.8f);
+    g.fillEllipse(x + 14.6f, y + 8.4f, 6.4f, 6.8f);
+    juce::Path nose;
+    nose.addTriangle(x + 13.5f, y + 15.0f,
+                     x + 11.6f, y + 19.0f,
+                     x + 15.4f, y + 19.0f);
+    g.fillPath(nose);
+    for (int i = 0; i < 3; ++i)
+        g.fillRect(x + 9.6f + 3.4f * i, y + 22.0f, 1.0f, 5.0f);
+}
+} // namespace
+
 @@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
     @@TARGET@@AudioProcessor& processor)
     : juce::AudioProcessorEditor(&processor),
@@ -44,10 +67,9 @@ void @@TARGET@@AudioProcessorEditor::paint(juce::Graphics& g) {
     g.fillRoundedRectangle(panel, 9.0f);
     g.setColour(palette.border);
     g.drawRoundedRectangle(panel, 9.0f, 1.1f);
-    // Neutral theme affordance until each plugin supplies its own approved skull.
-    g.setColour(palette.accent);
-    g.setFont(juce::Font(juce::FontOptions(13.0f).withStyle("Bold")));
-    g.drawFittedText("THEME", 22, 17, 82, 38, juce::Justification::centred, 1);
+    // SkellForge Smoke/default starter: the skull head only (no key).
+    // Theme button remains clickable; the final shared skull is undecided.
+    drawProvisionalSkullOnly(g, 50.0f, 21.0f, palette.accent, palette.surface);
     g.setColour(palette.secondary);
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawFittedText("SKELLFORGE / VST3", 20, getHeight()-36,
