@@ -31,14 +31,21 @@ cmake --build build --config Release --parallel 2
 The .vst3 bundle lives under `build/@@TARGET@@_artefacts/Release/VST3/`.
 The generated GitHub Actions workflow builds and uploads an actual Windows VST3.
 
+For development-only real editor inspection, pass
+`-DSKELLFORGE_BUILD_SMOKE_UI=ON` to CMake. This builds an additional console
+tool (`SkellForgeSmokeUiCapture`), separate from the VST3; it saves real
+JUCE editor PNGs for three sizes and both skins, and validates the temporary
+skull-only mark and theme-switch behavior. Default is OFF; the capture tool
+is never packaged into the released VST3.
+
 ## Startup behavior and shared UI
 
 - One automatable `gain_db` parameter from -24 to +24 dB in whole numbers.
 - Defaults to 0 dB: initial audio remains unchanged.
 - 15 ms linear smoothing for gain automation.
 - Mono/stereo audio, no MIDI, no standalone build, no declared added latency.
-- SkellCore Obsidian UI and hardware-style knob, resizing, skull-click theme toggle.
-- Shared existing skull-key mark is temporary until the master Skelly skull is approved.
+- SkellCore Obsidian UI and hardware-style knob, resizing, clickable skull theme toggle.
+- The starter's temporary artwork is only the Skell Key skull *head*, with the key removed. It is not the final master skull. Existing plugin icon artwork is unchanged.
 
 This is a neutral demonstration plugin, not a finished DSP processor.
 No automatic SkellWorld connection or SkellKey/SkellTune key-follow is implied by
