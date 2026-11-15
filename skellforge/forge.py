@@ -428,24 +428,49 @@ def doctor() -> None:
 
 def build_native_pilot(
     sdk: Path, output: Path, pilot: str, cmake: str = "cmake", parallel: int = 2,
+    steinberg_sdk: Path | None = None, skelllang_source: Path | None = None,
 ) -> None:
-    """Build a checked-out SkellNative pilot with its own pinned dependencies."""
+    """Build and verify a native pilot; failures stop delivery."""
     if sys.platform != "win32":
         raise ForgeError("Native VST3 pilots currently target Windows x64")
     if not 1 <= parallel <= 32:
         raise ForgeError("--parallel must be between 1 and 32")
-    target, option = {
-        "mini": ("SkellMiniNative", "SKELLNATIVE_BUILD_MINI"),
-        "spacer": ("SkellSpacerNative", "SKELLNATIVE_BUILD_SPACER"),
-    }[pilot]
-    source = sdk.expanduser().resolve() / "native" / "vst3"
+    pilots = {"mini": ("SkellMiniNative", "SKELLNATIVE_BUILD_MINI"),
+              "spacer": ("SkellSpacerNative", "SKELLNATIVE_BUILD_SPACER")}
+    if pilot not in pilots:
+        raise ForgeError(f"Unknown native pilot: {pilot}")
+    target, option = pilots[pilot]
+    checkout = sdk.expanduser().resolve()
+    source = checkout / "native" / "vst3"
     if not (source / "CMakeLists.txt").is_file():
         raise ForgeError(f"Expected a SkellNative VST3 checkout at {source}")
     build = output.expanduser().resolve()
-    subprocess.run([cmake, "-S", str(source), "-B", str(build), "-A", "x64",
-                    f"-D{option}=ON", f"-DPython3_EXECUTABLE={sys.executable}"], check=True)
-    subprocess.run([cmake, "--build", str(build), "--config", "Release", "--target", target,
+    if build == checkout or build in source.parents or build == source:
+        raise ForgeError("Native build output must be separate from source directories")
+    command = [cmake, "-S", str(source), "-B", str(build), "-A", "x64",
+               f"-D{option}=ON", f"-DPython3_EXECUTABLE={sys.executable}"]
+    for option_name, path, required in (
+        ("SKELLNATIVE_STEINBERG_SDK", steinberg_sdk, "CMakeLists.txt"),
+        ("SKELLNATIVE_SKELLLANG_SOURCE", skelllang_source, "skelllang/native_controls.py"),
+    ):
+        if path is not None:
+            resolved = path.expanduser().resolve()
+            if not (resolved / required).is_file():
+                raise ForgeError(f"Invalid {option_name} checkout: {resolved}")
+            command.append(f"-D{option_name}={resolved}")
+    subprocess.run(command, check=True)
+    targets = [target, "SkellNativeControlTests"]
+    if pilot == "mini":
+        targets.append("SpacerVst3Parity")
+    subprocess.run([cmake, "--build", str(build), "--config", "Release", "--target", *targets,
                     "--parallel", str(parallel)], check=True)
+    # Resolve CTest beside the chosen CMake executable, including paths with spaces.
+    cmake_path = Path(shutil.which(cmake) or cmake)
+    ctest = str(cmake_path.with_name("ctest.exe" if sys.platform == "win32" else "ctest"))
+    pattern = "^(SkellNativeControlTests|SkellMiniOfficialValidator|SkellMiniBinaryAudio)$" if pilot == "mini" else "^SkellNativeControlTests$"
+    subprocess.run([ctest, "--test-dir", str(build), "-C", "Release", "--output-on-failure",
+                    "--no-tests=error", "-R", pattern], check=True)
+    print(f"Native {pilot}: build and registered verification gates passed")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -481,6 +506,8 @@ def parser() -> argparse.ArgumentParser:
     native.add_argument("output", type=Path, help="CMake build directory")
     native.add_argument("--cmake", default="cmake", help="CMake executable or full path")
     native.add_argument("--parallel", type=int, default=2)
+    native.add_argument("--steinberg-sdk", type=Path, help="Complete local official SDK checkout")
+    native.add_argument("--skelllang-source", type=Path, help="Local SkellLang compiler override")
     build.add_argument("--static-runtime", action="store_true",
                        help="Experimental opt-in static MSVC runtime; test before shipping")
     package = sub.add_parser("package", help="Verify one VST3 and package its bundle")
@@ -533,7 +560,8 @@ def main(argv: list[str] | None = None) -> int:
             build_project(args.project, args.juce_path, args.core_path, args.parallel,
                           args.static_runtime)
         elif args.action == "build-native":
-            build_native_pilot(args.sdk, args.output, args.pilot, args.cmake, args.parallel)
+            build_native_pilot(args.sdk, args.output, args.pilot, args.cmake, args.parallel,
+                               args.steinberg_sdk, args.skelllang_source)
         elif args.action == "package":
             result = package_project(args.project, args.out)
             print(f"Packaged: {result}")

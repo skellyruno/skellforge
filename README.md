@@ -129,3 +129,17 @@ The command configures Windows x64 and builds the selected Release VST3.
 SkellNative resolves its pinned dependencies and runs its post-build
 validator. Use `--cmake` with the Visual Studio bundled CMake path if needed.
 Plugin source and control declarations live in the SkellNative checkout.
+
+### Verified native development builds
+
+The updated `build-native` requires the SkellNative native-parameter-runtime
+branch (or a descendant containing `SkellNativeControlTests`). It builds and
+runs shared runtime checks. Mini also runs official Steinberg validation and
+a loaded-binary pitch/delay/sample-offset automation test. Any failed command
+stops the CLI. Spacer retains its SDK post-build validator; full legacy A/B
+parity requires the separate legacy bundle and is not implied by this command.
+
+Use `--steinberg-sdk PATH` to reuse a complete recursive SDK checkout and
+`--skelllang-source PATH` to explicitly test a local compiler checkout. Omit the
+latter for SkellNative's pinned compiler. Test logs live in CMake's Testing folder.
+These remain Windows x64 DEV builds; no automatic installation or release occurs.
