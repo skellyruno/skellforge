@@ -57,6 +57,11 @@ generated projects differ only in the CMake dependency-path logic and one `.giti
   multi-line `run:` block decides the step result).
 - Repository `.gitignore`.
 
+### Preset/automation safety and packaging parity
+- New manifests record standard parameter min, max, step and default; validation flags changed declarations while accepting older manifests and unrecognized declaration forms.
+- Added optional static runtime build setting, default off; generated Windows workflows now emit SHA-256 bundle checksum artifacts.
+- No published plugin parameters, existing automation IDs or saved FL Studio project states are migrated.
+
 ### Additional uploaded CLI improvements
 - Local plugin code suggestions and collision check commands; JSON output for validate.
 - Transactional SkellCore revision upgrades across CMake, README, and manifest with validation and rollback.

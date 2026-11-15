@@ -5,6 +5,13 @@ if(NOT WIN32)
   message(FATAL_ERROR "SkellForge v0.1 targets Windows VST3 only")
 endif()
 
+# Experimental opt-in: MSVC static runtime. Default is the existing dynamic runtime.
+# This requires a real Windows host test before being used in a release.
+option(SKELLFORGE_STATIC_RUNTIME "Statically link the MSVC runtime" OFF)
+if(SKELLFORGE_STATIC_RUNTIME)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 include(FetchContent)
 # An explicit local path that is wrong must fail loudly, never silently download instead.
 # (Plain if(VAR) would treat values such as OFF, 0 or NO as "unset"; an empty value means "download".)

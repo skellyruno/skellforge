@@ -61,6 +61,10 @@ Additional maintenance commands (the code catalog is only a snapshot):
 
 Packaging now writes a SHA-256 sidecar next to each VST3 ZIP; existing package files or checksum files are never overwritten.
 
+New projects record standard gain parameter range/default metadata, which validation checks against recognizable JUCE declarations. Older projects without this optional metadata continue to validate.
+
+`build --static-runtime` is an **experimental, opt-in** static MSVC runtime build setting. It does not change the default and has not been verified in FL Studio. Generated Windows CI also writes the ZIP checksum.
+
 ## Available today
 
 - **Plugin generator**: buildable JUCE C++17 VST3 starter, mono/stereo gain

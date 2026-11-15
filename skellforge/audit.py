@@ -185,6 +185,38 @@ def _formats(text: str) -> list[str]:
     return found
 
 
+_NUMBER = r"(-?\d+(?:\.\d*)?(?:[eE][-+]?\d+)?)f?"
+_RANGE_DECLARATION = r'ParameterID\s*[{(]\s*"%s"\s*,\s*\d+\s*[})]\s*,\s*"[^"]*"\s*,\s*' \
+    r"(?:juce::)?NormalisableRange<float>\s*\(\s*" + _NUMBER + r"\s*,\s*" + _NUMBER + r"\s*,\s*" + _NUMBER + \
+    r"\s*\)\s*,\s*" + _NUMBER + r"\s*[,)]"
+
+
+def find_parameter_ranges(project: Path, ids, limit: int = 2000) -> dict:
+    """Read standard literal JUCE parameter min/max/step/default; treat unknown forms as inconclusive."""
+    patterns = {pid: re.compile(_RANGE_DECLARATION % re.escape(pid)) for pid in ids}
+    found: dict[str, tuple[float, float, float, float]] = {}
+    seen = 0
+    for folder, subfolders, filenames in os.walk(project):
+        subfolders[:] = sorted(d for d in subfolders if d not in SKIPPED_FOLDERS
+                               and d != "build" and not d.startswith("build-"))
+        for name in sorted(filenames):
+            if Path(name).suffix.lower() not in LITERAL_SUFFIXES:
+                continue
+            seen += 1
+            file = Path(folder) / name
+            try:
+                if seen > limit or file.stat().st_size > MAX_SOURCE_BYTES:
+                    continue
+                source = _strip_cpp_comments(file.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+            for pid, pattern in patterns.items():
+                match = pattern.search(source)
+                if match and pid not in found:
+                    found[pid] = tuple(float(group) for group in match.groups())
+    return found
+
+
 def find_string_literals(project: Path, literals, limit: int = 2000) -> dict:
     """Which of `literals` appear as a "quoted" string in any C/C++ file of the project?
 

@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 
 from . import __version__
-from .audit import audit_project, find_string_literals, strip_cmake_comments
+from .audit import audit_project, find_parameter_ranges, find_string_literals, strip_cmake_comments
 
 MIN_PYTHON = (3, 10)  # Path.write_text(newline=...) needs 3.10
 PARAMETER_SCAN_LIMIT = 2000
@@ -173,6 +173,7 @@ def create_project(name: str, destination: Path, code: str,
             "core_repo": info["core_repo"],
             "core_revision": info["core_rev"],
             "parameter_ids": ["gain_db"],
+            "parameters": {"gain_db": {"min": -24.0, "max": 24.0, "step": 1.0, "default": 0.0}},
         }
         world = {
             "schema": "skellworld-plugin/1",
@@ -221,6 +222,16 @@ def validate_project(project: Path) -> dict:
     parameter_ids = data.get("parameter_ids", [])
     if not isinstance(parameter_ids, list) or not all(isinstance(i, str) for i in parameter_ids):
         raise ForgeError("Invalid skellforge.json: parameter_ids must be a list of text values")
+    parameters = data.get("parameters", {})
+    if not isinstance(parameters, dict):
+        raise ForgeError("Invalid skellforge.json: parameters must be an object")
+    for pid, spec in parameters.items():
+        if pid not in parameter_ids:
+            raise ForgeError(f"Invalid skellforge.json: parameters lists {pid!r}, not in parameter_ids")
+        if (not isinstance(spec, dict) or set(spec) != {"min", "max", "step", "default"}
+                or not all(isinstance(v, (float, int)) and not isinstance(v, bool) for v in spec.values())):
+            raise ForgeError(f"Invalid skellforge.json: parameters[{pid!r}] needs numeric min/max/step/default")
+
     # New projects use safe names; existing v0.1 manifests retain exact IDs.
     info = identity(data.get("name", ""), data.get("plugin_code", ""),
                     data.get("core_revision", ""), data.get("core_repo", ""),
@@ -264,6 +275,16 @@ def validate_project(project: Path) -> dict:
                 f"{', '.join(missing)}. Renaming or removing a parameter ID breaks saved projects "
                 "and host automation; restore it (or, only for a never-released plugin, "
                 "update parameter_ids in the manifest).")
+    if parameters:
+        found = find_parameter_ranges(project, parameters, limit=PARAMETER_SCAN_LIMIT)
+        for pid in sorted(parameters):
+            expected = tuple(float(parameters[pid][key]) for key in ("min", "max", "step", "default"))
+            actual = found.get(pid)
+            if actual is not None and any(abs(a - b) > 1e-9 for a, b in zip(expected, actual)):
+                raise ForgeError(
+                    f"Parameter {pid!r} changed: manifest has min/max/step/default {expected}, "
+                    f"source declares {actual}. Changing ranges or defaults breaks the meaning "
+                    "of saved automation; restore the previous values or perform a migration.")
     return data
 
 
@@ -304,7 +325,8 @@ def upgrade_core(project: Path, new_rev: str) -> tuple[str, str]:
 
 
 def build_project(project: Path, juce_path: Path | None = None,
-                  core_path: Path | None = None, parallel: int = 2) -> None:
+                  core_path: Path | None = None, parallel: int = 2,
+                  static_runtime: bool = False) -> None:
     validate_project(project)
     if sys.platform != "win32":
         raise ForgeError("Windows VST3 build requires Windows; generate/validate works cross-platform")
@@ -323,6 +345,8 @@ def build_project(project: Path, juce_path: Path | None = None,
             if not any((path / layout).is_file() for layout in layouts):
                 raise ForgeError(f"{option} does not contain {' or '.join(layouts)}: {path}")
             cmd.append(f"-D{option}={path}")
+    if static_runtime:
+        cmd.append("-DSKELLFORGE_STATIC_RUNTIME=ON")
     subprocess.run(cmd, check=True)
     subprocess.run(["cmake", "--build", str(output), "--config", "Release",
                     "--parallel", str(parallel)], check=True)
@@ -429,6 +453,8 @@ def parser() -> argparse.ArgumentParser:
     build.add_argument("--juce-path", type=Path)
     build.add_argument("--core-path", type=Path)
     build.add_argument("--parallel", type=int, default=2)
+    build.add_argument("--static-runtime", action="store_true",
+                       help="Experimental opt-in static MSVC runtime; test before shipping")
     package = sub.add_parser("package", help="Verify one VST3 and package its bundle")
     package.add_argument("project", type=Path)
     package.add_argument("--out", type=Path)
@@ -476,7 +502,8 @@ def main(argv: list[str] | None = None) -> int:
         elif args.action == "build":
             if args.parallel < 1 or args.parallel > 32:
                 raise ForgeError("--parallel must be between 1 and 32")
-            build_project(args.project, args.juce_path, args.core_path, args.parallel)
+            build_project(args.project, args.juce_path, args.core_path, args.parallel,
+                          args.static_runtime)
         elif args.action == "package":
             result = package_project(args.project, args.out)
             print(f"Packaged: {result}")
