@@ -426,6 +426,28 @@ def doctor() -> None:
     print("  Dependencies are fetched only by CMake, not by generation.")
 
 
+def build_native_pilot(
+    sdk: Path, output: Path, pilot: str, cmake: str = "cmake", parallel: int = 2,
+) -> None:
+    """Build a checked-out SkellNative pilot with its own pinned dependencies."""
+    if sys.platform != "win32":
+        raise ForgeError("Native VST3 pilots currently target Windows x64")
+    if not 1 <= parallel <= 32:
+        raise ForgeError("--parallel must be between 1 and 32")
+    target, option = {
+        "mini": ("SkellMiniNative", "SKELLNATIVE_BUILD_MINI"),
+        "spacer": ("SkellSpacerNative", "SKELLNATIVE_BUILD_SPACER"),
+    }[pilot]
+    source = sdk.expanduser().resolve() / "native" / "vst3"
+    if not (source / "CMakeLists.txt").is_file():
+        raise ForgeError(f"Expected a SkellNative VST3 checkout at {source}")
+    build = output.expanduser().resolve()
+    subprocess.run([cmake, "-S", str(source), "-B", str(build), "-A", "x64",
+                    f"-D{option}=ON", f"-DPython3_EXECUTABLE={sys.executable}"], check=True)
+    subprocess.run([cmake, "--build", str(build), "--config", "Release", "--target", target,
+                    "--parallel", str(parallel)], check=True)
+
+
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="skellforge", description="Skelly Windows VST3 project forge")
     p.add_argument("--version", action="version", version=__version__)
@@ -453,6 +475,12 @@ def parser() -> argparse.ArgumentParser:
     build.add_argument("--juce-path", type=Path)
     build.add_argument("--core-path", type=Path)
     build.add_argument("--parallel", type=int, default=2)
+    native = sub.add_parser("build-native", help="Build one SkellNative VST3 development pilot")
+    native.add_argument("pilot", choices=("mini", "spacer"))
+    native.add_argument("sdk", type=Path, help="SkellNative checkout containing the chosen pilot")
+    native.add_argument("output", type=Path, help="CMake build directory")
+    native.add_argument("--cmake", default="cmake", help="CMake executable or full path")
+    native.add_argument("--parallel", type=int, default=2)
     build.add_argument("--static-runtime", action="store_true",
                        help="Experimental opt-in static MSVC runtime; test before shipping")
     package = sub.add_parser("package", help="Verify one VST3 and package its bundle")
@@ -504,6 +532,8 @@ def main(argv: list[str] | None = None) -> int:
                 raise ForgeError("--parallel must be between 1 and 32")
             build_project(args.project, args.juce_path, args.core_path, args.parallel,
                           args.static_runtime)
+        elif args.action == "build-native":
+            build_native_pilot(args.sdk, args.output, args.pilot, args.cmake, args.parallel)
         elif args.action == "package":
             result = package_project(args.project, args.out)
             print(f"Packaged: {result}")

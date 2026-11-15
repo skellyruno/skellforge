@@ -115,3 +115,17 @@ Run the tests:
 ```sh
 python -m unittest discover -s tests -v
 ```
+
+### Build a SkellNative development pilot
+
+With a SkellNative checkout that includes the pilot target:
+
+```powershell
+python -m skellforge build-native mini C:/work/skellnative C:/build/skell-mini
+python -m skellforge build-native spacer C:/work/skellnative C:/build/skell-spacer
+```
+
+The command configures Windows x64 and builds the selected Release VST3.
+SkellNative resolves its pinned dependencies and runs its post-build
+validator. Use `--cmake` with the Visual Studio bundled CMake path if needed.
+Plugin source and control declarations live in the SkellNative checkout.
