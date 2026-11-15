@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skellforge"
+dynamic = ["version"]
+description = "Skelly Windows VST3 project forge"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+skellforge = "skellforge.forge:main"
+
+[tool.setuptools]
+packages = ["skellforge"]
+include-package-data = true
+
+[tool.setuptools.dynamic]
+version = { attr = "skellforge.__version__" }
+
+[tool.setuptools.package-data]
+skellforge = ["data/**/*", "data/**/.*", "data/.*/**/*"]

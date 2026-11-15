@@ -29,9 +29,14 @@ jobs:
           $binary = @(Get-ChildItem $bundles[0].FullName -File -Recurse -Filter '*.vst3')
           if ($binary.Count -lt 1) { throw "Missing VST3 plugin binary" }
           Compress-Archive -Path $bundles[0].FullName -DestinationPath "SkellForge-@@TARGET@@-Windows-VST3.zip"
+          $zip = "SkellForge-@@TARGET@@-Windows-VST3.zip"
+          $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLower()
+          [System.IO.File]::WriteAllText((Join-Path $PWD "$zip.sha256"), ($hash + "  " + $zip + [char]10))
       - uses: actions/upload-artifact@v4
         with:
           name: SkellForge-@@TARGET@@-Windows-VST3
-          path: SkellForge-@@TARGET@@-Windows-VST3.zip
+          path: |
+            SkellForge-@@TARGET@@-Windows-VST3.zip
+            SkellForge-@@TARGET@@-Windows-VST3.zip.sha256
           if-no-files-found: error
           retention-days: 7
