@@ -6,6 +6,7 @@ JUCE and SkellCore are resolved by the generated CMake build, pinned by revision
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -94,6 +95,28 @@ def known_code_owner(code: str) -> str | None:
     database = json.loads(KNOWN_CODES.read_text(encoding="utf-8"))
     return next((owner for used, owner in database["codes"].items()
                  if used.casefold() == code.casefold()), None)
+
+
+def suggest_codes(name: str, limit: int = 3) -> list[str]:
+    """Suggest free four-character plugin codes from the local snapshot."""
+    identity(name, "0000")
+    words = re.findall(r"[A-Za-z0-9]+", name)
+    letters = "".join(words)
+    prefix = (letters[:2].capitalize() + "xx")[:2]
+    candidates = [
+        words[0][:2].capitalize() + words[1][:2].capitalize() if len(words) > 1 else "",
+        letters[:4].capitalize(),
+        "".join(word[0].upper() for word in words[:4]) + letters[1:4],
+    ]
+    candidates += [f"{prefix}{n:02d}" for n in range(1, 100)]
+    result: list[str] = []
+    for code in candidates:
+        code = code[:4]
+        if CODE_PATTERN.fullmatch(code) and known_code_owner(code) is None and all(code.casefold() != x.casefold() for x in result):
+            result.append(code)
+            if len(result) == limit:
+                break
+    return result
 
 
 def render_template(source: str, data: dict[str, str]) -> str:
@@ -244,6 +267,42 @@ def validate_project(project: Path) -> dict:
     return data
 
 
+def upgrade_core(project: Path, new_rev: str) -> tuple[str, str]:
+    """Change all three SkellCore pins together and restore the original bytes on failure."""
+    manifest = validate_project(project)
+    project = project.resolve()
+    if not SHA_PATTERN.fullmatch(new_rev):
+        raise ForgeError("SkellCore revision must be a full immutable 40-character Git commit SHA")
+    old_rev = manifest["core_revision"].lower()
+    new_rev = new_rev.lower()
+    if new_rev == old_rev:
+        raise ForgeError(f"Project is already pinned to {old_rev}")
+    cmake = project / "CMakeLists.txt"
+    source = cmake.read_bytes().decode("utf-8")
+    pattern = re.compile(r"(\bGIT_TAG\s+)" + re.escape(old_rev) + r"(?![A-Za-z0-9])")
+    if len(pattern.findall(source)) != 1:
+        raise ForgeError("Expected exactly one SkellCore GIT_TAG pin; no changes applied")
+    changes: dict[Path, bytes] = {
+        cmake: pattern.sub(lambda m: m.group(1) + new_rev, source).encode("utf-8")
+    }
+    readme = project / "README.md"
+    changes[readme] = readme.read_bytes().decode("utf-8").replace(old_rev, new_rev).encode("utf-8")
+    manifest_path = project / "skellforge.json"
+    json_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    json_manifest["core_revision"] = new_rev
+    changes[manifest_path] = (json.dumps(json_manifest, indent=2) + "\n").encode("utf-8")
+    originals = {path: path.read_bytes() for path in changes}
+    try:
+        for path, content in changes.items():
+            path.write_bytes(content)
+        validate_project(project)
+    except BaseException:
+        for path, content in originals.items():
+            path.write_bytes(content)
+        raise
+    return old_rev, new_rev
+
+
 def build_project(project: Path, juce_path: Path | None = None,
                   core_path: Path | None = None, parallel: int = 2) -> None:
     validate_project(project)
@@ -300,7 +359,10 @@ def package_project(project: Path, output: Path | None = None) -> Path:
         raise ForgeError(f"Will not overwrite existing package: {output}")
     if not output.parent.is_dir():
         raise ForgeError(f"Package destination parent directory missing: {output.parent}")
-    created = False
+    checksum_file = output.with_name(output.name + ".sha256")
+    if checksum_file.exists() or checksum_file.is_symlink():
+        raise ForgeError(f"Will not overwrite existing checksum file: {checksum_file}")
+    created = checksum_created = False
     try:
         with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
             created = True
@@ -311,12 +373,20 @@ def package_project(project: Path, output: Path | None = None) -> Path:
         with zipfile.ZipFile(output, "r") as archive:
             if archive.testzip() is not None:
                 raise ForgeError("Packaged ZIP failed integrity verification")
+        digest = hashlib.sha256()
+        with open(output, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(chunk)
+        with open(checksum_file, "x", encoding="ascii", newline="\n") as out:
+            checksum_created = True
+            out.write(f"{digest.hexdigest()}  {output.name}\n")
     except BaseException:
-        if created:  # never leave a partial package, and never delete a file we did not create
-            try:
-                output.unlink(missing_ok=True)
-            except OSError:
-                pass  # e.g. a Windows scanner holds the file; keep the original error
+        for made, path in ((created, output), (checksum_created, checksum_file)):
+            if made:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
         raise
     return output
 
@@ -344,6 +414,16 @@ def parser() -> argparse.ArgumentParser:
     new.add_argument("--core-repo", default=CORE_REPO)
     validate = sub.add_parser("validate", help="Check manifests, immutable IDs and template files")
     validate.add_argument("project", type=Path)
+    validate.add_argument("--json", action="store_true", help="Print the validated manifest")
+    codes = sub.add_parser("codes", help="Check or suggest plugin codes")
+    codes_sub = codes.add_subparsers(dest="codes_action", required=True)
+    check = codes_sub.add_parser("check", help="Check local code snapshot")
+    check.add_argument("code")
+    suggest = codes_sub.add_parser("suggest", help="Suggest available codes")
+    suggest.add_argument("name")
+    upgrade = sub.add_parser("upgrade-core", help="Update pinned SkellCore commit safely")
+    upgrade.add_argument("project", type=Path)
+    upgrade.add_argument("rev", help="40-character commit SHA")
     build = sub.add_parser("build", help="Configure/build Windows x64 Release VST3")
     build.add_argument("project", type=Path)
     build.add_argument("--juce-path", type=Path)
@@ -373,13 +453,34 @@ def main(argv: list[str] | None = None) -> int:
             print("Next: python -m skellforge validate " + str(path))
         elif args.action == "validate":
             data = validate_project(args.project)
-            print(f"VALID: {data['name']} [{data['plugin_code']}] Windows VST3 / pinned SkellCore")
+            if args.json:
+                print(json.dumps({"valid": True, **data}, indent=2))
+            else:
+                print(f"VALID: {data['name']} [{data['plugin_code']}] Windows VST3 / pinned SkellCore")
+        elif args.action == "codes":
+            if args.codes_action == "suggest":
+                for code in suggest_codes(args.name):
+                    print(code)
+            else:
+                if not CODE_PATTERN.fullmatch(args.code):
+                    raise ForgeError("Plugin code must be exactly four ASCII letters/digits")
+                owner = known_code_owner(args.code)
+                if owner:
+                    print(f"{args.code}: already used by {owner}")
+                    return 1
+                print(f"{args.code}: free in local snapshot; verify live catalog before release")
+        elif args.action == "upgrade-core":
+            old, new = upgrade_core(args.project, args.rev)
+            print(f"SkellCore pin: {old[:12]} -> {new[:12]}")
+            print("Rebuild and re-test before distributing.")
         elif args.action == "build":
             if args.parallel < 1 or args.parallel > 32:
                 raise ForgeError("--parallel must be between 1 and 32")
             build_project(args.project, args.juce_path, args.core_path, args.parallel)
         elif args.action == "package":
-            print(f"Packaged: {package_project(args.project, args.out)}")
+            result = package_project(args.project, args.out)
+            print(f"Packaged: {result}")
+            print(f"SHA-256: {result.with_name(result.name + '.sha256').read_text(encoding='ascii').split()[0]}")
         elif args.action == "audit":
             report = audit_project(args.project)
             if args.json:

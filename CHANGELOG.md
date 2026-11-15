@@ -57,6 +57,11 @@ generated projects differ only in the CMake dependency-path logic and one `.giti
   multi-line `run:` block decides the step result).
 - Repository `.gitignore`.
 
+### Additional uploaded CLI improvements
+- Local plugin code suggestions and collision check commands; JSON output for validate.
+- Transactional SkellCore revision upgrades across CMake, README, and manifest with validation and rollback.
+- SHA-256 sidecar on local VST3 package output; generated source, existing preset identities and plugin DSP remain unchanged.
+
 ### Wheel distribution (additional update)
 - Added `pyproject.toml` and `MANIFEST.in`; `pip install .` now exposes the `skellforge` CLI and includes generator templates and known-code catalog as package resources.
 - Added cross-platform CI wheel build, isolated working-directory install/generate/validate/audit smoke test, and source/resource parity regression tests.
