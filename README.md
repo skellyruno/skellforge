@@ -12,7 +12,7 @@ Existing production plugins are not modified by installing this tool.
 
 ## Get started
 
-Prerequisite: Python 3.10+ and a clone of this repository. No pip dependencies.
+Prerequisite: Python 3.10+. No runtime dependencies. Run from a clone with `python -m skellforge`, or use `pip install .` (or install the built wheel) to get the `skellforge` command. Templates and the local code catalog ship inside the wheel.
 
 ```powershell
 python -m skellforge doctor
@@ -79,8 +79,9 @@ workflow, which can build a downloadable VST3 without your local machine.
 ## Repository organization
 
 - `skellforge/` - Python standard-library command-line application
-- `templates/` - CMake, C++ source, docs and Windows CI for generated plugins
-- `config/known_codes.json` - known existing plugin identifiers (snapshot)
+- `skellforge/data/templates/` - packaged templates for generated plugins
+- `skellforge/data/config/known_codes.json` - packaged known IDs (snapshot)
+- `templates/`, `config/` - temporary mirrored source assets for compatibility; tests enforce byte-for-byte parity
 - `tests/` - generator and package regression tests
 - `docs/ROADMAP.md` - phased work toward a visual drag-and-drop Forge
 

@@ -1,0 +1,37 @@
+name: Build Windows VST3
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: skell-vst3-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  vst3:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure x64
+        run: cmake -S . -B build -A x64
+      - name: Build VST3
+        run: cmake --build build --config Release --parallel 2
+      - name: Verify exact VST3 bundle and package
+        shell: pwsh
+        run: |
+          $root = "build/@@TARGET@@_artefacts"
+          if (!(Test-Path $root)) { throw "Missing JUCE output: $root" }
+          $bundles = @(Get-ChildItem $root -Directory -Recurse -Filter '*.vst3')
+          if ($bundles.Count -ne 1) { throw "Expected one VST3, found $($bundles.Count)" }
+          $binary = @(Get-ChildItem $bundles[0].FullName -File -Recurse -Filter '*.vst3')
+          if ($binary.Count -lt 1) { throw "Missing VST3 plugin binary" }
+          Compress-Archive -Path $bundles[0].FullName -DestinationPath "SkellForge-@@TARGET@@-Windows-VST3.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkellForge-@@TARGET@@-Windows-VST3
+          path: SkellForge-@@TARGET@@-Windows-VST3.zip
+          if-no-files-found: error
+          retention-days: 7

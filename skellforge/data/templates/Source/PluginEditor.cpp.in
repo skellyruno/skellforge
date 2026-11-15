@@ -1,0 +1,63 @@
+#include "PluginEditor.h"
+#include <SkellCore/SkullTheme.h>
+
+@@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
+    @@TARGET@@AudioProcessor& processor)
+    : juce::AudioProcessorEditor(&processor),
+      gainAttachment_(processor.parameters, "gain_db", gainKnob_) {
+    setLookAndFeel(&skin_);
+    setResizable(true, true);
+    setResizeLimits(390, 260, 900, 600);
+    title_.setText("@@NAME@@", juce::dontSendNotification);
+    title_.setFont(juce::Font(juce::FontOptions(21.0f).withStyle("Bold")));
+    title_.setJustificationType(juce::Justification::centredLeft);
+    gainLabel_.setText("GAIN", juce::dontSendNotification);
+    gainLabel_.setJustificationType(juce::Justification::centred);
+    skellcore::ui::configureStudioKnob(gainKnob_, 0.0);
+    gainKnob_.setTextValueSuffix(" dB");
+    skull_.onClick = [this] { changeSkin(); };
+    addAndMakeVisible(skull_);
+    addAndMakeVisible(title_);
+    addAndMakeVisible(gainLabel_);
+    addAndMakeVisible(gainKnob_);
+    setSize(440, 310);
+}
+
+@@TARGET@@AudioProcessorEditor::~@@TARGET@@AudioProcessorEditor() {
+    setLookAndFeel(nullptr);
+}
+
+void @@TARGET@@AudioProcessorEditor::changeSkin() {
+    const auto next = skin_.skin() == skellcore::ui::StudioSkin::Obsidian
+        ? skellcore::ui::StudioSkin::Ivory
+        : skellcore::ui::StudioSkin::Obsidian;
+    setLookAndFeel(nullptr);
+    skin_.setSkin(next);
+    setLookAndFeel(&skin_);
+    repaint();
+}
+
+void @@TARGET@@AudioProcessorEditor::paint(juce::Graphics& g) {
+    const auto palette = skin_.palette();
+    g.fillAll(palette.background);
+    const auto panel = getLocalBounds().toFloat().reduced(12.0f);
+    g.setColour(palette.surface);
+    g.fillRoundedRectangle(panel, 9.0f);
+    g.setColour(palette.border);
+    g.drawRoundedRectangle(panel, 9.0f, 1.1f);
+    // Existing shared skull-key mark, pending official master skull approval.
+    skellcore::ui::drawSkullKeyMark(g, 25.0f, 21.0f, palette.accent, palette.surface);
+    g.setColour(palette.secondary);
+    g.setFont(juce::Font(juce::FontOptions(11.0f)));
+    g.drawFittedText("SKELLFORGE / VST3", 20, getHeight()-36,
+                     getWidth()-40, 18, juce::Justification::centred, 1);
+}
+
+void @@TARGET@@AudioProcessorEditor::resized() {
+    const int w = getWidth(), h = getHeight();
+    skull_.setBounds(22, 17, 82, 38);
+    title_.setBounds(110, 20, w-140, 35);
+    gainLabel_.setBounds(w/2-58, 77, 116, 24);
+    const int knobSize = juce::jlimit(116, 176, h-145);
+    gainKnob_.setBounds((w-knobSize)/2, 106, knobSize, knobSize);
+}

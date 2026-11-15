@@ -21,9 +21,10 @@ from .audit import audit_project, find_string_literals, strip_cmake_comments
 
 MIN_PYTHON = (3, 10)  # Path.write_text(newline=...) needs 3.10
 PARAMETER_SCAN_LIMIT = 2000
-ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "templates"
-KNOWN_CODES = ROOT / "config" / "known_codes.json"
+# Files reside under the installed package, not the repository checkout.
+DATA = Path(__file__).resolve().parent / "data"
+TEMPLATES = DATA / "templates"
+KNOWN_CODES = DATA / "config" / "known_codes.json"
 CORE_REPO = "https://github.com/skellyruno/skellcore-vst-template.git"
 CORE_REV = "268cf6ba43e2a7fbb7e7b39bd3855663e00089f2"
 

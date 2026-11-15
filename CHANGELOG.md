@@ -57,6 +57,12 @@ generated projects differ only in the CMake dependency-path logic and one `.giti
   multi-line `run:` block decides the step result).
 - Repository `.gitignore`.
 
+### Wheel distribution (additional update)
+- Added `pyproject.toml` and `MANIFEST.in`; `pip install .` now exposes the `skellforge` CLI and includes generator templates and known-code catalog as package resources.
+- Added cross-platform CI wheel build, isolated working-directory install/generate/validate/audit smoke test, and source/resource parity regression tests.
+- Retained original root template/config files temporarily to protect existing tests and downstream source integrations; byte parity is checked in tests. Python generation now reads the packaged resources.
+- No DSP, plugin automation IDs, preset states or generated C++ sources changed by this wheel packaging step.
+
 ### Not changed / not verified
 - The C++ templates were left untouched, and nothing here compiles JUCE or builds a real VST3;
   the Windows smoke workflow remains the check for that.

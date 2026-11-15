@@ -6,11 +6,13 @@ on:
     paths:
       - "skellforge/**"
       - "templates/**"
+      - "skellforge/data/templates/**"
       - ".github/workflows/windows-vst3-smoke.yml"
   pull_request:
     paths:
       - "skellforge/**"
       - "templates/**"
+      - "skellforge/data/templates/**"
 permissions:
   contents: read
 # Cancel only superseded development runs. Main, manual, production, release
