@@ -426,12 +426,21 @@ def doctor() -> None:
     print("  Dependencies are fetched only by CMake, not by generation.")
 
 
+def _is_windows_host() -> bool:
+    """Keep host detection mockable without changing the global sys.platform.
+
+    shutil.which and pathlib read the process-wide platform, so patching
+    sys.platform in a Linux unit test corrupts their Windows-API detection.
+    """
+    return sys.platform == "win32"
+
+
 def build_native_pilot(
     sdk: Path, output: Path, pilot: str, cmake: str = "cmake", parallel: int = 2,
     steinberg_sdk: Path | None = None, skelllang_source: Path | None = None,
 ) -> None:
     """Build and verify a native pilot; failures stop delivery."""
-    if sys.platform != "win32":
+    if not _is_windows_host():
         raise ForgeError("Native VST3 pilots currently target Windows x64")
     if not 1 <= parallel <= 32:
         raise ForgeError("--parallel must be between 1 and 32")
@@ -445,7 +454,7 @@ def build_native_pilot(
     if not (source / "CMakeLists.txt").is_file():
         raise ForgeError(f"Expected a SkellNative VST3 checkout at {source}")
     build = output.expanduser().resolve()
-    if build == checkout or build in source.parents or build == source:
+    if build == checkout or build in checkout.parents or checkout in build.parents:
         raise ForgeError("Native build output must be separate from source directories")
     command = [cmake, "-S", str(source), "-B", str(build), "-A", "x64",
                f"-D{option}=ON", f"-DPython3_EXECUTABLE={sys.executable}"]
@@ -466,7 +475,7 @@ def build_native_pilot(
                     "--parallel", str(parallel)], check=True)
     # Resolve CTest beside the chosen CMake executable, including paths with spaces.
     cmake_path = Path(shutil.which(cmake) or cmake)
-    ctest = str(cmake_path.with_name("ctest.exe" if sys.platform == "win32" else "ctest"))
+    ctest = str(cmake_path.with_name("ctest.exe" if _is_windows_host() else "ctest"))
     pattern = "^(SkellNativeControlTests|SkellMiniOfficialValidator|SkellMiniBinaryAudio)$" if pilot == "mini" else "^SkellNativeControlTests$"
     subprocess.run([ctest, "--test-dir", str(build), "-C", "Release", "--output-on-failure",
                     "--no-tests=error", "-R", pattern], check=True)

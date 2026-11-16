@@ -132,6 +132,11 @@ Plugin source and control declarations live in the SkellNative checkout.
 
 ### Verified native development builds
 
+The build-native unit tests simulate Windows without patching Python's
+process-wide sys.platform. This avoids breaking shutil.which() on Linux during
+cross-platform CI. Native build outputs must be outside the SkellNative checkout.
+
+
 The updated `build-native` requires the SkellNative native-parameter-runtime
 branch (or a descendant containing `SkellNativeControlTests`). It builds and
 runs shared runtime checks. Mini also runs official Steinberg validation and

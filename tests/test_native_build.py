@@ -17,7 +17,7 @@ class NativeBuildTests(unittest.TestCase):
         source.mkdir(parents=True)
         (source / 'CMakeLists.txt').write_text('# fixture')
 
-    @patch('skellforge.forge.sys.platform', 'win32')
+    @patch('skellforge.forge._is_windows_host', lambda: True)
     @patch('skellforge.forge.subprocess.run')
     def test_build_runs_validator_audio_and_runtime_gates(self, run):
         build_native_pilot(self.sdk, self.root / 'build', 'mini')
@@ -29,7 +29,7 @@ class NativeBuildTests(unittest.TestCase):
         self.assertIn('SkellMiniBinaryAudio', command[-1])
         self.assertTrue(all(call.kwargs['check'] for call in run.call_args_list))
 
-    @patch('skellforge.forge.sys.platform', 'win32')
+    @patch('skellforge.forge._is_windows_host', lambda: True)
     @patch('skellforge.forge.subprocess.run')
     def test_failed_build_prevents_verification(self, run):
         run.side_effect = [None, subprocess.CalledProcessError(1, 'build')]
@@ -37,17 +37,29 @@ class NativeBuildTests(unittest.TestCase):
             build_native_pilot(self.sdk, self.root / 'build', 'mini')
         self.assertEqual(run.call_count, 2)
 
-    @patch('skellforge.forge.sys.platform', 'win32')
+    @patch('skellforge.forge._is_windows_host', lambda: True)
     @patch('skellforge.forge.subprocess.run')
     def test_invalid_inputs_do_not_launch_tools(self, run):
-        for pilot, output in [('unknown', self.root / 'build'), ('mini', self.sdk), ('mini', self.root)]:
+        for pilot, output in [('unknown', self.root / 'build'), ('mini', self.sdk), ('mini', self.root), ('mini', self.sdk / 'build')]:
             with self.subTest(pilot=pilot, output=output), self.assertRaises(ForgeError):
                 build_native_pilot(self.sdk, output, pilot)
         with self.assertRaises(ForgeError):
             build_native_pilot(self.sdk, self.root / 'build', 'mini', skelllang_source=self.root)
         run.assert_not_called()
 
-    @patch('skellforge.forge.sys.platform', 'win32')
+
+    @patch('skellforge.forge._is_windows_host', lambda: True)
+    @patch('skellforge.forge.subprocess.run')
+    @patch('skellforge.forge.shutil.which', return_value='/opt/CMake With Spaces/bin/cmake')
+    def test_ctest_uses_sibling_executable_without_changing_global_platform(self, which, run):
+        build_native_pilot(self.sdk, self.root / 'build', 'spacer')
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(run.call_args_list[2].args[0][0],
+                         '/opt/CMake With Spaces/bin/ctest.exe')
+        self.assertIn('SkellNativeControlTests', run.call_args_list[2].args[0][-1])
+        which.assert_called_once_with('cmake')
+
+    @patch('skellforge.forge._is_windows_host', lambda: True)
     @patch('skellforge.forge.subprocess.run')
     def test_failed_validation_is_not_success(self, run):
         run.side_effect = [None, None, subprocess.CalledProcessError(1, 'ctest')]
