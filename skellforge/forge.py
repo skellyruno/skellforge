@@ -6,6 +6,7 @@ JUCE and SkellCore are resolved by the generated CMake build, pinned by revision
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -17,15 +18,25 @@ import zipfile
 from pathlib import Path
 
 from . import __version__
-from .audit import audit_project
+from .audit import audit_project, find_parameter_ranges, find_string_literals, strip_cmake_comments
 
-ROOT = Path(__file__).resolve().parents[1]
-TEMPLATES = ROOT / "templates"
-KNOWN_CODES = ROOT / "config" / "known_codes.json"
+MIN_PYTHON = (3, 10)  # Path.write_text(newline=...) needs 3.10
+PARAMETER_SCAN_LIMIT = 2000
+# Files reside under the installed package, not the repository checkout.
+DATA = Path(__file__).resolve().parent / "data"
+TEMPLATES = DATA / "templates"
+KNOWN_CODES = DATA / "config" / "known_codes.json"
 CORE_REPO = "https://github.com/skellyruno/skellcore-vst-template.git"
 CORE_REV = "268cf6ba43e2a7fbb7e7b39bd3855663e00089f2"
 
-NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{1,79}\Z")
+# 2-80 characters, and no trailing space (Windows strips it from the .vst3 file name).
+NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{0,78}[A-Za-z0-9_-]\Z")
+# Preserve only original v0.1 names when validating old project manifests.
+LEGACY_NAME_PATTERN = re.compile(r"[A-Za-z][A-Za-z0-9 _-]{1,79}\Z")
+# The product name becomes "<name>.vst3"; Windows cannot create these file names.
+WINDOWS_RESERVED_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{n}" for n in range(1, 10)} | {f"lpt{n}" for n in range(1, 10)})
 CODE_PATTERN = re.compile(r"[A-Za-z0-9]{4}\Z")
 SHA_PATTERN = re.compile(r"[a-fA-F0-9]{40}\Z")
 REPO_PATTERN = re.compile(r"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git\Z")
@@ -47,9 +58,16 @@ class ForgeError(Exception):
 
 
 def identity(name: str, code: str, core_rev: str = CORE_REV,
-             core_repo: str = CORE_REPO) -> dict[str, str]:
-    if not NAME_PATTERN.fullmatch(name):
-        raise ForgeError("Product name: 2-80 ASCII letters, digits, spaces, underscores or hyphens; start with a letter")
+             core_repo: str = CORE_REPO, *,
+             allow_legacy_name: bool = False) -> dict[str, str]:
+    if not isinstance(name, str) or not (
+        NAME_PATTERN.fullmatch(name)
+        or (allow_legacy_name and LEGACY_NAME_PATTERN.fullmatch(name))
+    ):
+        raise ForgeError("Product name: 2-80 ASCII letters, digits, spaces, underscores or hyphens; "
+                         "start with a letter and do not end with a space")
+    if name.casefold() in WINDOWS_RESERVED_NAMES and not allow_legacy_name:
+        raise ForgeError(f"Product name {name!r} is a reserved Windows file name; choose another")
     if not CODE_PATTERN.fullmatch(code):
         raise ForgeError("Plugin code must be exactly four ASCII letters/digits")
     if not SHA_PATTERN.fullmatch(core_rev):
@@ -77,6 +95,28 @@ def known_code_owner(code: str) -> str | None:
     database = json.loads(KNOWN_CODES.read_text(encoding="utf-8"))
     return next((owner for used, owner in database["codes"].items()
                  if used.casefold() == code.casefold()), None)
+
+
+def suggest_codes(name: str, limit: int = 3) -> list[str]:
+    """Suggest free four-character plugin codes from the local snapshot."""
+    identity(name, "0000")
+    words = re.findall(r"[A-Za-z0-9]+", name)
+    letters = "".join(words)
+    prefix = (letters[:2].capitalize() + "xx")[:2]
+    candidates = [
+        words[0][:2].capitalize() + words[1][:2].capitalize() if len(words) > 1 else "",
+        letters[:4].capitalize(),
+        "".join(word[0].upper() for word in words[:4]) + letters[1:4],
+    ]
+    candidates += [f"{prefix}{n:02d}" for n in range(1, 100)]
+    result: list[str] = []
+    for code in candidates:
+        code = code[:4]
+        if CODE_PATTERN.fullmatch(code) and known_code_owner(code) is None and all(code.casefold() != x.casefold() for x in result):
+            result.append(code)
+            if len(result) == limit:
+                break
+    return result
 
 
 def render_template(source: str, data: dict[str, str]) -> str:
@@ -133,6 +173,7 @@ def create_project(name: str, destination: Path, code: str,
             "core_repo": info["core_repo"],
             "core_revision": info["core_rev"],
             "parameter_ids": ["gain_db"],
+            "parameters": {"gain_db": {"min": -24.0, "max": 24.0, "step": 1.0, "default": 0.0}},
         }
         world = {
             "schema": "skellworld-plugin/1",
@@ -145,12 +186,23 @@ def create_project(name: str, destination: Path, code: str,
             "capabilities": [],
         }
         for filename, content in (("skellforge.json", manifest), ("skellworld.json", world)):
-            (destination / filename).write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
+            (destination / filename).write_text(json.dumps(content, indent=2) + "\n",
+                                                encoding="utf-8", newline="\n")
         validate_project(destination)
     except BaseException:
         shutil.rmtree(destination)
         raise
     return destination
+
+
+def _load_manifest(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError, RecursionError) as exc:  # RecursionError: absurdly nested JSON
+        raise ForgeError(f"Invalid project manifest: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ForgeError(f"Invalid project manifest: {path.name} must contain a JSON object")
+    return value
 
 
 def validate_project(project: Path) -> dict:
@@ -160,37 +212,121 @@ def validate_project(project: Path) -> dict:
     for path in REQUIRED:
         if not (project / path).is_file():
             raise ForgeError(f"Required project file missing: {path}")
-    try:
-        data = json.loads((project / "skellforge.json").read_text(encoding="utf-8"))
-        world = json.loads((project / "skellworld.json").read_text(encoding="utf-8"))
-    except (ValueError, OSError) as exc:
-        raise ForgeError(f"Invalid project manifest: {exc}") from exc
+    data = _load_manifest(project / "skellforge.json")
+    world = _load_manifest(project / "skellworld.json")
     if data.get("schema") != "skellforge/plugin/1":
         raise ForgeError("Unsupported SkellForge manifest schema")
+    for key in ("name", "plugin_code", "core_revision", "core_repo"):
+        if not isinstance(data.get(key, ""), str):
+            raise ForgeError(f"Invalid skellforge.json: {key} must be a text value")
+    parameter_ids = data.get("parameter_ids", [])
+    if not isinstance(parameter_ids, list) or not all(isinstance(i, str) for i in parameter_ids):
+        raise ForgeError("Invalid skellforge.json: parameter_ids must be a list of text values")
+    parameters = data.get("parameters", {})
+    if not isinstance(parameters, dict):
+        raise ForgeError("Invalid skellforge.json: parameters must be an object")
+    for pid, spec in parameters.items():
+        if pid not in parameter_ids:
+            raise ForgeError(f"Invalid skellforge.json: parameters lists {pid!r}, not in parameter_ids")
+        if (not isinstance(spec, dict) or set(spec) != {"min", "max", "step", "default"}
+                or not all(isinstance(v, (float, int)) and not isinstance(v, bool) for v in spec.values())):
+            raise ForgeError(f"Invalid skellforge.json: parameters[{pid!r}] needs numeric min/max/step/default")
+
+    # New projects use safe names; existing v0.1 manifests retain exact IDs.
     info = identity(data.get("name", ""), data.get("plugin_code", ""),
-                    data.get("core_revision", ""), data.get("core_repo", ""))
+                    data.get("core_revision", ""), data.get("core_repo", ""),
+                    allow_legacy_name=True)
     for key, expected in (("target", info["target"]), ("bundle_id", info["bundle"]),
                           ("manufacturer_code", "SkAu"), ("formats", ["VST3"]),
                           ("platforms", ["Windows"])):
         if data.get(key) != expected:
             raise ForgeError(f"Identity mismatch in skellforge.json: {key}")
-    cmake = (project / "CMakeLists.txt").read_text(encoding="utf-8")
-    for expected in (f"PLUGIN_CODE {info['code']}",
-                     f'BUNDLE_ID "{info["bundle"]}"',
-                     f"juce_add_plugin({info['target']}",
-                     f"GIT_TAG {info['core_rev']}"):
-        if expected not in cmake:
+    # Commented-out lines must not satisfy an identity check.
+    cmake = strip_cmake_comments((project / "CMakeLists.txt").read_text(encoding="utf-8"))
+    end = r"(?![A-Za-z0-9_])"  # whole-token match: "Sf01" must not accept "Sf01x"
+    for expected, pattern in (
+            (f"PLUGIN_CODE {info['code']}",
+             r"(?<![A-Za-z0-9_])PLUGIN_CODE\s+" + re.escape(info["code"]) + end),
+            (f'BUNDLE_ID "{info["bundle"]}"',
+             r"(?<![A-Za-z0-9_])BUNDLE_ID\s+\"" + re.escape(info["bundle"]) + r"\""),
+            (f"juce_add_plugin({info['target']}",
+             r"\bjuce_add_plugin\s*\(\s*" + re.escape(info["target"]) + end),
+            (f"GIT_REPOSITORY {info['core_repo']}",
+             r"\bGIT_REPOSITORY\s+\"?" + re.escape(info["core_repo"]) + r"\"?(?=[\s)])"),
+            (f"GIT_TAG {info['core_rev']}",
+             r"\bGIT_TAG\s+" + re.escape(info["core_rev"]) + end)):
+        if not re.search(pattern, cmake):
             raise ForgeError(f"CMake identity or dependency pin mismatch: {expected}")
     if not re.search(r"\bFORMATS\s+VST3\b", cmake) or re.search(r"\bStandalone\b", cmake):
         raise ForgeError("Only the Windows VST3 format is permitted in this starter")
     if world.get("plugin_code") != info["code"] or world.get("bundle_id") != info["bundle"] \
             or world.get("product_id") != info["world_id"]:
         raise ForgeError("SkellWorld manifest identity disagrees with SkellForge")
+    if parameter_ids:
+        # Parameter IDs are what saved projects and host automation bind to. Deliberately
+        # conservative: an ID counts as present if its exact "string" appears anywhere in the
+        # project's code (constants, other folders and .inl files all work), so only an ID that
+        # has vanished from every source file is an error. An incomplete scan proves nothing.
+        scan = find_string_literals(project, parameter_ids, limit=PARAMETER_SCAN_LIMIT)
+        missing = sorted(set(parameter_ids) - scan["found"])
+        if missing and scan["complete"]:
+            raise ForgeError(
+                f"Parameter ID(s) listed in skellforge.json no longer appear in any source file: "
+                f"{', '.join(missing)}. Renaming or removing a parameter ID breaks saved projects "
+                "and host automation; restore it (or, only for a never-released plugin, "
+                "update parameter_ids in the manifest).")
+    if parameters:
+        found = find_parameter_ranges(project, parameters, limit=PARAMETER_SCAN_LIMIT)
+        for pid in sorted(parameters):
+            expected = tuple(float(parameters[pid][key]) for key in ("min", "max", "step", "default"))
+            actual = found.get(pid)
+            if actual is not None and any(abs(a - b) > 1e-9 for a, b in zip(expected, actual)):
+                raise ForgeError(
+                    f"Parameter {pid!r} changed: manifest has min/max/step/default {expected}, "
+                    f"source declares {actual}. Changing ranges or defaults breaks the meaning "
+                    "of saved automation; restore the previous values or perform a migration.")
     return data
 
 
+def upgrade_core(project: Path, new_rev: str) -> tuple[str, str]:
+    """Change all three SkellCore pins together and restore the original bytes on failure."""
+    manifest = validate_project(project)
+    project = project.resolve()
+    if not SHA_PATTERN.fullmatch(new_rev):
+        raise ForgeError("SkellCore revision must be a full immutable 40-character Git commit SHA")
+    old_rev = manifest["core_revision"].lower()
+    new_rev = new_rev.lower()
+    if new_rev == old_rev:
+        raise ForgeError(f"Project is already pinned to {old_rev}")
+    cmake = project / "CMakeLists.txt"
+    source = cmake.read_bytes().decode("utf-8")
+    pattern = re.compile(r"(\bGIT_TAG\s+)" + re.escape(old_rev) + r"(?![A-Za-z0-9])")
+    if len(pattern.findall(source)) != 1:
+        raise ForgeError("Expected exactly one SkellCore GIT_TAG pin; no changes applied")
+    changes: dict[Path, bytes] = {
+        cmake: pattern.sub(lambda m: m.group(1) + new_rev, source).encode("utf-8")
+    }
+    readme = project / "README.md"
+    changes[readme] = readme.read_bytes().decode("utf-8").replace(old_rev, new_rev).encode("utf-8")
+    manifest_path = project / "skellforge.json"
+    json_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    json_manifest["core_revision"] = new_rev
+    changes[manifest_path] = (json.dumps(json_manifest, indent=2) + "\n").encode("utf-8")
+    originals = {path: path.read_bytes() for path in changes}
+    try:
+        for path, content in changes.items():
+            path.write_bytes(content)
+        validate_project(project)
+    except BaseException:
+        for path, content in originals.items():
+            path.write_bytes(content)
+        raise
+    return old_rev, new_rev
+
+
 def build_project(project: Path, juce_path: Path | None = None,
-                  core_path: Path | None = None, parallel: int = 2) -> None:
+                  core_path: Path | None = None, parallel: int = 2,
+                  static_runtime: bool = False) -> None:
     validate_project(project)
     if sys.platform != "win32":
         raise ForgeError("Windows VST3 build requires Windows; generate/validate works cross-platform")
@@ -199,12 +335,18 @@ def build_project(project: Path, juce_path: Path | None = None,
     project = project.resolve()
     output = project / "build"
     cmd = ["cmake", "-S", str(project), "-B", str(output), "-A", "x64"]
-    for option, path in (("JUCE_PATH", juce_path), ("SKELLCORE_PATH", core_path)):
+    # The generated CMakeLists.txt accepts a SkellCore repo root (SkellCore/CMakeLists.txt)
+    # or the library folder itself; check exactly what CMake will accept.
+    for option, path, layouts in (("JUCE_PATH", juce_path, ("CMakeLists.txt",)),
+                                  ("SKELLCORE_PATH", core_path,
+                                   ("SkellCore/CMakeLists.txt", "CMakeLists.txt"))):
         if path is not None:
             path = path.expanduser().resolve()
-            if not (path / "CMakeLists.txt").is_file():
-                raise ForgeError(f"{option} does not contain a CMakeLists.txt: {path}")
+            if not any((path / layout).is_file() for layout in layouts):
+                raise ForgeError(f"{option} does not contain {' or '.join(layouts)}: {path}")
             cmd.append(f"-D{option}={path}")
+    if static_runtime:
+        cmd.append("-DSKELLFORGE_STATIC_RUNTIME=ON")
     subprocess.run(cmd, check=True)
     subprocess.run(["cmake", "--build", str(output), "--config", "Release",
                     "--parallel", str(parallel)], check=True)
@@ -216,25 +358,60 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     artefacts = project / "build" / (data["target"] + "_artefacts")
     if not artefacts.is_dir():
         raise ForgeError(f"No build artefacts found: {artefacts}")
-    bundles = sorted(p for p in artefacts.rglob("*.vst3") if p.is_dir())
+    # Multi-config generators write <target>_artefacts/<Config>/VST3; the build command
+    # makes Release, so a stale Debug bundle must not block packaging.
+    search_root = artefacts / "Release"
+    if not search_root.is_dir():
+        search_root = artefacts
+    bundles = sorted(p for p in search_root.rglob("*.vst3") if p.is_dir())
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
-    if not any(p.is_file() and p.suffix.lower() == ".vst3" for p in bundle.rglob("*")):
-        raise ForgeError("VST3 bundle contains no VST3 binary")
+    # Do not archive symlinks: they can include unrelated files outside the bundle.
+    entries = sorted(bundle.rglob("*"))
+    if bundle.is_symlink() or any(p.is_symlink() for p in entries):
+        raise ForgeError("VST3 bundle contains a symbolic link; refusing export")
+    binaries = [p for p in entries if p.is_file() and p.suffix.lower() == ".vst3"]
+    if len(binaries) != 1:
+        raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
+    if binaries[0].relative_to(bundle).parts[:2] != ("Contents", "x86_64-win"):
+        raise ForgeError("VST3 binary must be inside Contents/x86_64-win")
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
+    if output.is_symlink() or bundle.resolve() in output.resolve(strict=False).parents:
+        raise ForgeError("Package destination must not be a symlink or inside the VST3 bundle")
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")
     if not output.parent.is_dir():
         raise ForgeError(f"Package destination parent directory missing: {output.parent}")
-    with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
-        for file in sorted(bundle.rglob("*")):
-            if file.is_file():
-                archive.write(file, arcname=str(Path(bundle.name) / file.relative_to(bundle)))
-    with zipfile.ZipFile(output, "r") as archive:
-        if archive.testzip() is not None:
-            output.unlink(missing_ok=True)
-            raise ForgeError("Packaged ZIP failed integrity verification")
+    checksum_file = output.with_name(output.name + ".sha256")
+    if checksum_file.exists() or checksum_file.is_symlink():
+        raise ForgeError(f"Will not overwrite existing checksum file: {checksum_file}")
+    created = checksum_created = False
+    try:
+        with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
+            created = True
+            for file in entries:
+                if file.is_file():
+                    arcname = (Path(bundle.name) / file.relative_to(bundle)).as_posix()
+                    archive.write(file, arcname=arcname)
+        with zipfile.ZipFile(output, "r") as archive:
+            if archive.testzip() is not None:
+                raise ForgeError("Packaged ZIP failed integrity verification")
+        digest = hashlib.sha256()
+        with open(output, "rb") as stream:
+            for chunk in iter(lambda: stream.read(1 << 20), b""):
+                digest.update(chunk)
+        with open(checksum_file, "x", encoding="ascii", newline="\n") as out:
+            checksum_created = True
+            out.write(f"{digest.hexdigest()}  {output.name}\n")
+    except BaseException:
+        for made, path in ((created, output), (checksum_created, checksum_file)):
+            if made:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        raise
     return output
 
 
@@ -242,9 +419,63 @@ def doctor() -> None:
     print(f"SkellForge {__version__} | Python {platform.python_version()} | {platform.system()}")
     for binary in ("cmake", "git"):
         print(f"  {binary}: {shutil.which(binary) or 'NOT FOUND'}")
+    print(f"  Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ required: "
+          f"{'ok' if sys.version_info >= MIN_PYTHON else 'TOO OLD'}")
     print(f"  Windows build supported here: {sys.platform == 'win32'}")
     print(f"  shared SkellCore pin: {CORE_REV}")
     print("  Dependencies are fetched only by CMake, not by generation.")
+
+
+def windows_native_platform() -> bool:
+    """Platform check isolated so tests don't mutate process-wide sys.platform."""
+    return sys.platform == "win32"
+
+
+def build_native_pilot(
+    sdk: Path, output: Path, pilot: str, cmake: str = "cmake", parallel: int = 2,
+    steinberg_sdk: Path | None = None, skelllang_source: Path | None = None,
+) -> None:
+    """Build and verify a native pilot; failures stop delivery."""
+    if not windows_native_platform():
+        raise ForgeError("Native VST3 pilots currently target Windows x64")
+    if not 1 <= parallel <= 32:
+        raise ForgeError("--parallel must be between 1 and 32")
+    pilots = {"mini": ("SkellMiniNative", "SKELLNATIVE_BUILD_MINI"),
+              "spacer": ("SkellSpacerNative", "SKELLNATIVE_BUILD_SPACER")}
+    if pilot not in pilots:
+        raise ForgeError(f"Unknown native pilot: {pilot}")
+    target, option = pilots[pilot]
+    checkout = sdk.expanduser().resolve()
+    source = checkout / "native" / "vst3"
+    if not (source / "CMakeLists.txt").is_file():
+        raise ForgeError(f"Expected a SkellNative VST3 checkout at {source}")
+    build = output.expanduser().resolve()
+    if build == checkout or build in source.parents or build == source:
+        raise ForgeError("Native build output must be separate from source directories")
+    command = [cmake, "-S", str(source), "-B", str(build), "-A", "x64",
+               f"-D{option}=ON", f"-DPython3_EXECUTABLE={sys.executable}"]
+    for option_name, path, required in (
+        ("SKELLNATIVE_STEINBERG_SDK", steinberg_sdk, "CMakeLists.txt"),
+        ("SKELLNATIVE_SKELLLANG_SOURCE", skelllang_source, "skelllang/native_controls.py"),
+    ):
+        if path is not None:
+            resolved = path.expanduser().resolve()
+            if not (resolved / required).is_file():
+                raise ForgeError(f"Invalid {option_name} checkout: {resolved}")
+            command.append(f"-D{option_name}={resolved}")
+    subprocess.run(command, check=True)
+    targets = [target, "SkellNativeControlTests"]
+    if pilot == "mini":
+        targets.append("SpacerVst3Parity")
+    subprocess.run([cmake, "--build", str(build), "--config", "Release", "--target", *targets,
+                    "--parallel", str(parallel)], check=True)
+    # Resolve CTest beside the chosen CMake executable, including paths with spaces.
+    cmake_path = Path(shutil.which(cmake) or cmake)
+    ctest = str(cmake_path.with_name("ctest.exe" if sys.platform == "win32" else "ctest"))
+    pattern = "^(SkellNativeControlTests|SkellMiniOfficialValidator|SkellMiniBinaryAudio)$" if pilot == "mini" else "^SkellNativeControlTests$"
+    subprocess.run([ctest, "--test-dir", str(build), "-C", "Release", "--output-on-failure",
+                    "--no-tests=error", "-R", pattern], check=True)
+    print(f"Native {pilot}: build and registered verification gates passed")
 
 
 def parser() -> argparse.ArgumentParser:
@@ -257,13 +488,38 @@ def parser() -> argparse.ArgumentParser:
     new.add_argument("--code", required=True, help="Unique 4-character VST3 plugin code")
     new.add_argument("--core-rev", default=CORE_REV)
     new.add_argument("--core-repo", default=CORE_REPO)
+    new_native = sub.add_parser("new-native", help="Create a distinct JUCE-free native Gain VST3 project (experimental)")
+    new_native.add_argument("name", help='Example: "Skell Pulse"')
+    new_native.add_argument("destination", type=Path)
+    new_native.add_argument("--code", required=True, help="Unique 4-character Skelly product code")
+    new_native.add_argument("--sdk", required=True, type=Path, help="Complete SkellNative checkout")
     validate = sub.add_parser("validate", help="Check manifests, immutable IDs and template files")
     validate.add_argument("project", type=Path)
+    validate.add_argument("--json", action="store_true", help="Print the validated manifest")
+    codes = sub.add_parser("codes", help="Check or suggest plugin codes")
+    codes_sub = codes.add_subparsers(dest="codes_action", required=True)
+    check = codes_sub.add_parser("check", help="Check local code snapshot")
+    check.add_argument("code")
+    suggest = codes_sub.add_parser("suggest", help="Suggest available codes")
+    suggest.add_argument("name")
+    upgrade = sub.add_parser("upgrade-core", help="Update pinned SkellCore commit safely")
+    upgrade.add_argument("project", type=Path)
+    upgrade.add_argument("rev", help="40-character commit SHA")
     build = sub.add_parser("build", help="Configure/build Windows x64 Release VST3")
     build.add_argument("project", type=Path)
     build.add_argument("--juce-path", type=Path)
     build.add_argument("--core-path", type=Path)
     build.add_argument("--parallel", type=int, default=2)
+    native = sub.add_parser("build-native", help="Build one SkellNative VST3 development pilot")
+    native.add_argument("pilot", choices=("mini", "spacer"))
+    native.add_argument("sdk", type=Path, help="SkellNative checkout containing the chosen pilot")
+    native.add_argument("output", type=Path, help="CMake build directory")
+    native.add_argument("--cmake", default="cmake", help="CMake executable or full path")
+    native.add_argument("--parallel", type=int, default=2)
+    native.add_argument("--steinberg-sdk", type=Path, help="Complete local official SDK checkout")
+    native.add_argument("--skelllang-source", type=Path, help="Local SkellLang compiler override")
+    build.add_argument("--static-runtime", action="store_true",
+                       help="Experimental opt-in static MSVC runtime; test before shipping")
     package = sub.add_parser("package", help="Verify one VST3 and package its bundle")
     package.add_argument("project", type=Path)
     package.add_argument("--out", type=Path)
@@ -275,6 +531,10 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.version_info < MIN_PYTHON:
+        print(f"SkellForge error: Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+ is required "
+              f"(running {platform.python_version()})", file=sys.stderr)
+        return 1
     args = parser().parse_args(argv)
     try:
         if args.action == "new":
@@ -282,15 +542,45 @@ def main(argv: list[str] | None = None) -> int:
                                   args.core_rev, args.core_repo)
             print(f"Created: {path}")
             print("Next: python -m skellforge validate " + str(path))
+        elif args.action == "new-native":
+            from .native_scaffold import create_native_project
+            path = create_native_project(args.name, args.destination, args.code, args.sdk)
+            print(f"Created experimental JUCE-free SkellNative VST3 project: {path}")
+            print("Next: configure Windows CMake with -DSKELLNATIVE_ROOT=your-skellnative-checkout")
         elif args.action == "validate":
             data = validate_project(args.project)
-            print(f"VALID: {data['name']} [{data['plugin_code']}] Windows VST3 / pinned SkellCore")
+            if args.json:
+                print(json.dumps({"valid": True, **data}, indent=2))
+            else:
+                print(f"VALID: {data['name']} [{data['plugin_code']}] Windows VST3 / pinned SkellCore")
+        elif args.action == "codes":
+            if args.codes_action == "suggest":
+                for code in suggest_codes(args.name):
+                    print(code)
+            else:
+                if not CODE_PATTERN.fullmatch(args.code):
+                    raise ForgeError("Plugin code must be exactly four ASCII letters/digits")
+                owner = known_code_owner(args.code)
+                if owner:
+                    print(f"{args.code}: already used by {owner}")
+                    return 1
+                print(f"{args.code}: free in local snapshot; verify live catalog before release")
+        elif args.action == "upgrade-core":
+            old, new = upgrade_core(args.project, args.rev)
+            print(f"SkellCore pin: {old[:12]} -> {new[:12]}")
+            print("Rebuild and re-test before distributing.")
         elif args.action == "build":
             if args.parallel < 1 or args.parallel > 32:
                 raise ForgeError("--parallel must be between 1 and 32")
-            build_project(args.project, args.juce_path, args.core_path, args.parallel)
+            build_project(args.project, args.juce_path, args.core_path, args.parallel,
+                          args.static_runtime)
+        elif args.action == "build-native":
+            build_native_pilot(args.sdk, args.output, args.pilot, args.cmake, args.parallel,
+                               args.steinberg_sdk, args.skelllang_source)
         elif args.action == "package":
-            print(f"Packaged: {package_project(args.project, args.out)}")
+            result = package_project(args.project, args.out)
+            print(f"Packaged: {result}")
+            print(f"SHA-256: {result.with_name(result.name + '.sha256').read_text(encoding='ascii').split()[0]}")
         elif args.action == "audit":
             report = audit_project(args.project)
             if args.json:
