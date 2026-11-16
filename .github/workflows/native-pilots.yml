@@ -1,0 +1,162 @@
+name: SkellForge native Mini and Spacer integration (Windows)
+on:
+  pull_request:
+    paths:
+      - "skellforge/**"
+      - "tests/**"
+      - ".github/workflows/native-pilots.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel manual, main, release, or production runs.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  native-pilots:
+    runs-on: windows-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout the SkellForge build orchestrator
+        uses: actions/checkout@v5
+      - name: Checkout verified SkellNative source (immutable pin)
+        uses: actions/checkout@v5
+        with:
+          repository: skellyruno/skellnative
+          ref: 43fb80cb371b770b12461368054a3d9183ab9aaf
+          path: deps/skellnative
+          persist-credentials: false
+      - name: Checkout official Steinberg SDK with submodules (immutable pin)
+        uses: actions/checkout@v5
+        with:
+          repository: steinbergmedia/vst3sdk
+          ref: 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          submodules: recursive
+          path: deps/steinberg-vst3sdk
+          persist-credentials: false
+      - name: Install Python 3.12
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Build Mini and run actual runtime, Steinberg and audio tests
+        run: python -m skellforge build-native mini deps/skellnative build/native-mini --steinberg-sdk deps/steinberg-vst3sdk --parallel 2
+      - name: Build Spacer and run shared native parameter tests
+        run: python -m skellforge build-native spacer deps/skellnative build/native-spacer --steinberg-sdk deps/steinberg-vst3sdk --parallel 2
+      - name: Run official Steinberg validator against loaded Spacer VST3
+        shell: pwsh
+        run: |
+          cmake --build build/native-spacer --config Release --target validator --parallel 2
+          if ($LASTEXITCODE -ne 0) { throw "Could not build official Steinberg validator" }
+          $validator = Get-ChildItem build/native-spacer -Recurse -File -Filter validator.exe | Select-Object -First 1
+          if (-not $validator) { throw "Official Steinberg validator not found" }
+          $bundle = Join-Path (Resolve-Path build/native-spacer).Path "VST3/Release/Skell Spacer Native DEV.vst3"
+          if (-not (Test-Path -LiteralPath $bundle -PathType Container)) { throw "Spacer VST3 not built" }
+          & $validator.FullName $bundle
+          if ($LASTEXITCODE -ne 0) { throw "Spacer failed official Steinberg validation" }
+      - name: Enforce RFC 8259 moduleinfo JSON and exact native factory IDs
+        shell: pwsh
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          expected = {
+              "native-mini": ("Skell Mini Native DEV",
+                  {"781C7C4CF278447AA4279A901761A4E2",
+                   "F987AB25F94C4646BE7E6D3C4DA5CC75"}),
+              "native-spacer": ("Skell Spacer Native DEV",
+                  {"0C6C714DBC9E4528A05AF80A2C219C48",
+                   "D692F31E5F754933A3B1B7F582C49CB2"}),
+          }
+          def reject_constant(value):
+              raise ValueError("Non-RFC 8259 JSON constant: " + value)
+          for source, (name, ids) in expected.items():
+              path = (Path("build") / source / "VST3" / "Release"
+                      / (name + ".vst3") / "Contents" / "Resources"
+                      / "moduleinfo.json")
+              doc = json.loads(path.read_text(encoding="utf-8-sig"),
+                               parse_constant=reject_constant)
+              classes = doc.get("Classes")
+              assert doc.get("Name") == name and doc.get("Version") == "0.1.0"
+              assert isinstance(classes, list) and len(classes) == 2
+              assert {str(c["CID"]).upper() for c in classes} == ids
+              assert {c["Category"] for c in classes} == {
+                  "Audio Module Class", "Component Controller Class"}
+              print("PASS strict moduleinfo and factory IDs:", name)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw "Native VST3 JSON or factory-ID gate failed" }
+      - name: Verify exact x64 PE32+ VST3 DLLs and write developer acceptance manifest
+        shell: pwsh
+        run: |
+          $items = @(
+            @{ name = "mini"; directory = "build/native-mini"; product = "Skell Mini Native DEV.vst3" },
+            @{ name = "spacer"; directory = "build/native-spacer"; product = "Skell Spacer Native DEV.vst3" }
+          )
+          $records = @()
+          foreach ($item in $items) {
+            $build = (Resolve-Path $item.directory).Path
+            $bundle = Join-Path $build ("VST3/Release/" + $item.product)
+            if (-not (Test-Path -LiteralPath $bundle -PathType Container)) { throw "Missing VST3 bundle: $bundle" }
+            $binaries = @(Get-ChildItem -LiteralPath $bundle -File -Recurse |
+              Where-Object { $_.Extension -eq ".vst3" })
+            if ($binaries.Count -ne 1) { throw "Expected one native DLL in $bundle, found $($binaries.Count)" }
+            $dll = $binaries[0]
+            $relative = $dll.FullName.Substring($bundle.Length).TrimStart([IO.Path]::DirectorySeparatorChar)
+            if (-not $relative.StartsWith("Contents\x86_64-win\", [StringComparison]::OrdinalIgnoreCase)) {
+              throw "Wrong VST3 binary folder: $relative"
+            }
+            $bytes = [IO.File]::ReadAllBytes($dll.FullName)
+            if ($bytes.Length -lt 256 -or $bytes[0] -ne 0x4d -or $bytes[1] -ne 0x5a) { throw "Missing DOS MZ header" }
+            $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+            if ($offset -lt 64 -or $offset + 26 -gt $bytes.Length) { throw "Invalid PE header offset" }
+            if ([Text.Encoding]::ASCII.GetString($bytes, $offset, 4) -ne ("PE" + [char]0 + [char]0)) {
+              throw "Missing Windows PE signature"
+            }
+            if ([BitConverter]::ToUInt16($bytes, $offset + 4) -ne 0x8664 -or
+                [BitConverter]::ToUInt16($bytes, $offset + 24) -ne 0x20b -or
+                (([BitConverter]::ToUInt16($bytes, $offset + 22) -band 0x2000) -eq 0)) {
+              throw "Expected Windows x64 PE32+ DLL"
+            }
+            $records += [pscustomobject]@{
+              pilot = $item.name
+              bundle = $item.product
+              binary = $relative
+              sha256 = (Get-FileHash -LiteralPath $dll.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              size_bytes = $bytes.Length
+              sdk_validation = "PASSED"
+              fl_studio_host_test = "NOT_RUN"
+            }
+          }
+          $manifest = [ordered]@{
+            schema = "skellforge/native-pilot-build/1"
+            status = "EXPERIMENTAL_NOT_RELEASE_READY"
+            source_commit = "43fb80cb371b770b12461368054a3d9183ab9aaf"
+            steinberg_commit = "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96"
+            skellforge_commit = "${{ github.event.pull_request.head.sha || github.sha }}"
+            skellforge_ci_checkout_commit = "${{ github.sha }}"
+            checks = [ordered]@{
+              generated_vst3 = "PASSED"
+              strict_moduleinfo_json_and_factory_ids = "PASSED"
+              mini_binary_audio = "PASSED"
+              mini_steinberg_validator = "PASSED"
+              spacer_steinberg_validator = "PASSED"
+              shared_parameter_runtime = "PASSED"
+              fl_studio_host = "NOT_RUN"
+              real_daw_cpu_latency = "NOT_RUN"
+            }
+            bundles = $records
+          }
+          $manifest | ConvertTo-Json -Depth 6 | Set-Content native-pilot-build.json -Encoding utf8
+          Write-Output (Get-Content native-pilot-build.json -Raw)
+      - name: Upload development VST3 bundles and immutable-checksum report
+        uses: actions/upload-artifact@v7
+        with:
+          name: SkellForge-Native-Mini-Spacer-DEV-Windows-VST3
+          path: |
+            native-pilot-build.json
+            build/native-mini/VST3/Release/Skell Mini Native DEV.vst3/**/*
+            build/native-spacer/VST3/Release/Skell Spacer Native DEV.vst3/**/*
+          if-no-files-found: error
+          retention-days: 14
