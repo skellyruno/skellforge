@@ -483,6 +483,11 @@ def parser() -> argparse.ArgumentParser:
     new.add_argument("--code", required=True, help="Unique 4-character VST3 plugin code")
     new.add_argument("--core-rev", default=CORE_REV)
     new.add_argument("--core-repo", default=CORE_REPO)
+    new_native = sub.add_parser("new-native", help="Create a distinct JUCE-free native Gain VST3 project (experimental)")
+    new_native.add_argument("name", help='Example: "Skell Pulse"')
+    new_native.add_argument("destination", type=Path)
+    new_native.add_argument("--code", required=True, help="Unique 4-character Skelly product code")
+    new_native.add_argument("--sdk", required=True, type=Path, help="Complete SkellNative checkout")
     validate = sub.add_parser("validate", help="Check manifests, immutable IDs and template files")
     validate.add_argument("project", type=Path)
     validate.add_argument("--json", action="store_true", help="Print the validated manifest")
@@ -532,6 +537,11 @@ def main(argv: list[str] | None = None) -> int:
                                   args.core_rev, args.core_repo)
             print(f"Created: {path}")
             print("Next: python -m skellforge validate " + str(path))
+        elif args.action == "new-native":
+            from .native_scaffold import create_native_project
+            path = create_native_project(args.name, args.destination, args.code, args.sdk)
+            print(f"Created experimental JUCE-free SkellNative VST3 project: {path}")
+            print("Next: configure Windows CMake with -DSKELLNATIVE_ROOT=your-skellnative-checkout")
         elif args.action == "validate":
             data = validate_project(args.project)
             if args.json:

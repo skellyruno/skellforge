@@ -143,3 +143,27 @@ Use `--steinberg-sdk PATH` to reuse a complete recursive SDK checkout and
 `--skelllang-source PATH` to explicitly test a local compiler checkout. Omit the
 latter for SkellNative's pinned compiler. Test logs live in CMake's Testing folder.
 These remain Windows x64 DEV builds; no automatic installation or release occurs.
+
+
+### Generate a *new* JUCE-free native VST3 project (experimental)
+
+In addition to named pilot builds, Forge now has an **opt-in Gain-only native
+generator** backed by the original SkellNative direct-Steinberg VST3 reference.
+It assigns distinct processor/controller class IDs and product-state namespace,
+copies an original Win32 SkellDraw editor, and compiles its real Gain/Output
+Peak control declarations from a checked-in SkellLang v2 file. It does not
+modify SkellNative, or any existing JUCE generator project.
+
+```powershell
+python -m skellforge new-native "Skell Pulse" ../skell-pulse-native --code QZ92 --sdk C:/src/skellnative
+cmake -S ../skell-pulse-native -B ../skell-pulse-native/build -A x64 -DSKELLNATIVE_ROOT=C:/src/skellnative
+cmake --build ../skell-pulse-native/build --config Release --parallel 2
+ctest --test-dir ../skell-pulse-native/build -C Release --output-on-failure
+```
+
+The exact source pins official Steinberg and SkellLang commits. A strict
+post-build VST3 metadata check ensures that product and class IDs match the
+generated manifest, while the official Steinberg validator is a required
+CTest gate. The generated C++ audio engine remains the **Gain reference**, not
+a user-authored DSP graph. Native SkellForge arbitrary-graph generation remains
+future work. FL Studio, CPU/latency and final GUI checks remain separate gates.
