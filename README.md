@@ -130,6 +130,11 @@ SkellNative resolves its pinned dependencies and runs its post-build
 validator. Use `--cmake` with the Visual Studio bundled CMake path if needed.
 Plugin source and control declarations live in the SkellNative checkout.
 
+For the cross-repository Windows CI build, development VST3 bundles and
+hash-verified FL Studio acceptance instructions see
+[Native pilot acceptance](docs/NATIVE_PILOT_ACCEPTANCE.md).
+Actual FL Studio host validation remains a separate manual release gate.
+
 ### Verified native development builds
 
 The build-native unit tests simulate Windows without patching Python's
