@@ -178,7 +178,13 @@ def create_native_project(name: str, destination: Path, code: str, sdk: Path) ->
                  "native/skelldraw/include/SkellDraw/Win32Painter.h"):
         if not (root / item).is_file():
             raise ForgeError(f"Incomplete SkellNative SDK: {item}")
-    dest = destination.expanduser().absolute()
+    requested = destination.expanduser().absolute()
+    # Resolve Windows 8.3 paths and junction aliases before verifying the
+    # containment boundary. Compare the canonical SDK and destination paths;
+    # otherwise an alias such as RUNNER~1 can bypass the no-write-inside-SDK rule.
+    if requested.exists() or requested.is_symlink():
+        raise ForgeError(f"Will not overwrite existing project: {requested}")
+    dest = requested.resolve(strict=False)
     if dest.exists() or dest.is_symlink():
         raise ForgeError(f"Will not overwrite existing project: {dest}")
     if not dest.parent.is_dir() or dest == root or root in dest.parents:

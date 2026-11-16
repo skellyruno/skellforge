@@ -426,12 +426,17 @@ def doctor() -> None:
     print("  Dependencies are fetched only by CMake, not by generation.")
 
 
+def windows_native_platform() -> bool:
+    """Platform check isolated so tests don't mutate process-wide sys.platform."""
+    return sys.platform == "win32"
+
+
 def build_native_pilot(
     sdk: Path, output: Path, pilot: str, cmake: str = "cmake", parallel: int = 2,
     steinberg_sdk: Path | None = None, skelllang_source: Path | None = None,
 ) -> None:
     """Build and verify a native pilot; failures stop delivery."""
-    if sys.platform != "win32":
+    if not windows_native_platform():
         raise ForgeError("Native VST3 pilots currently target Windows x64")
     if not 1 <= parallel <= 32:
         raise ForgeError("--parallel must be between 1 and 32")

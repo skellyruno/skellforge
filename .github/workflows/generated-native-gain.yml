@@ -75,7 +75,7 @@ jobs:
             throw "Expected Windows PE32+ AMD64"
           }
       - name: Upload experimental generated VST3, not a release
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SkellForge-Experimental-Generated-Native-Gain
           path: native-generated/build/VST3/Release/Skell Forge Test.vst3/**/*
