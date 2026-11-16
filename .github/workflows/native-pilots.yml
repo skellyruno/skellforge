@@ -26,7 +26,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           repository: skellyruno/skellnative
-          ref: 3823a067aaa59eb591fdeaed93080f09b279e6e4
+          ref: 43fb80cb371b770b12461368054a3d9183ab9aaf
           path: deps/skellnative
           persist-credentials: false
       - name: Checkout official Steinberg SDK with submodules (immutable pin)
@@ -56,6 +56,37 @@ jobs:
           if (-not (Test-Path -LiteralPath $bundle -PathType Container)) { throw "Spacer VST3 not built" }
           & $validator.FullName $bundle
           if ($LASTEXITCODE -ne 0) { throw "Spacer failed official Steinberg validation" }
+      - name: Enforce RFC 8259 moduleinfo JSON and exact native factory IDs
+        shell: pwsh
+        run: |
+          @'
+          import json
+          from pathlib import Path
+          expected = {
+              "native-mini": ("Skell Mini Native DEV",
+                  {"781C7C4CF278447AA4279A901761A4E2",
+                   "F987AB25F94C4646BE7E6D3C4DA5CC75"}),
+              "native-spacer": ("Skell Spacer Native DEV",
+                  {"0C6C714DBC9E4528A05AF80A2C219C48",
+                   "D692F31E5F754933A3B1B7F582C49CB2"}),
+          }
+          def reject_constant(value):
+              raise ValueError("Non-RFC 8259 JSON constant: " + value)
+          for source, (name, ids) in expected.items():
+              path = (Path("build") / source / "VST3" / "Release"
+                      / (name + ".vst3") / "Contents" / "Resources"
+                      / "moduleinfo.json")
+              doc = json.loads(path.read_text(encoding="utf-8-sig"),
+                               parse_constant=reject_constant)
+              classes = doc.get("Classes")
+              assert doc.get("Name") == name and doc.get("Version") == "0.1.0"
+              assert isinstance(classes, list) and len(classes) == 2
+              assert {str(c["CID"]).upper() for c in classes} == ids
+              assert {c["Category"] for c in classes} == {
+                  "Audio Module Class", "Component Controller Class"}
+              print("PASS strict moduleinfo and factory IDs:", name)
+          '@ | python -
+          if ($LASTEXITCODE -ne 0) { throw "Native VST3 JSON or factory-ID gate failed" }
       - name: Verify exact x64 PE32+ VST3 DLLs and write developer acceptance manifest
         shell: pwsh
         run: |
@@ -101,12 +132,13 @@ jobs:
           $manifest = [ordered]@{
             schema = "skellforge/native-pilot-build/1"
             status = "EXPERIMENTAL_NOT_RELEASE_READY"
-            source_commit = "3823a067aaa59eb591fdeaed93080f09b279e6e4"
+            source_commit = "43fb80cb371b770b12461368054a3d9183ab9aaf"
             steinberg_commit = "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96"
             skellforge_commit = "${{ github.event.pull_request.head.sha || github.sha }}"
             skellforge_ci_checkout_commit = "${{ github.sha }}"
             checks = [ordered]@{
               generated_vst3 = "PASSED"
+              strict_moduleinfo_json_and_factory_ids = "PASSED"
               mini_binary_audio = "PASSED"
               mini_steinberg_validator = "PASSED"
               spacer_steinberg_validator = "PASSED"

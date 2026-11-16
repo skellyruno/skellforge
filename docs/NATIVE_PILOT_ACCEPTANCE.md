@@ -5,10 +5,7 @@
 The experimental `skellforge build-native` commands integrate a pinned
 SkellNative checkout, its original Win32 SkellDraw components, official pinned
 Steinberg VST3 SDK and the pinned SkellLang v2 control compiler used by Mini.
-The Windows integration workflow builds both Mini and Spacer from source,
-checks the shared runtime, executes Mini's loaded-DLL audio/automation gate,
-runs the Steinberg validator on both plugins, checks exact PE32+ x64 binaries,
-and writes SHA-256 hashes to `native-pilot-build.json`.
+The Windows integration workflow builds both Mini and Spacer from the exact\nverified SkellNative commit `43fb80cb371b770b12461368054a3d9183ab9aaf`, checks shared runtime, executes Mini's loaded-DLL audio/automation gate, runs Steinberg's official validator on each product, **strictly parses RFC 8259 moduleinfo JSON and verifies both product factory class IDs**, checks PE32+ x64 binaries, and writes SHA-256 hashes to `native-pilot-build.json`.
 
 These checks establish that the development plugins can build and pass
 automated VST3 tests. They **do not** certify FL Studio compatibility or
