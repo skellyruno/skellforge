@@ -40,7 +40,13 @@ class NativeBuildTests(unittest.TestCase):
     @patch('skellforge.forge.windows_native_platform', new=lambda: True)
     @patch('skellforge.forge.subprocess.run')
     def test_invalid_inputs_do_not_launch_tools(self, run):
-        for pilot, output in [('unknown', self.root / 'build'), ('mini', self.sdk), ('mini', self.root)]:
+        for pilot, output in [
+            ('unknown', self.root / 'build'),
+            ('mini', self.sdk),
+            ('mini', self.root),
+            ('spacer', self.sdk / 'native/vst3/qa-build'),
+            ('spacer', self.sdk / 'qa-build'),
+        ]:
             with self.subTest(pilot=pilot, output=output), self.assertRaises(ForgeError):
                 build_native_pilot(self.sdk, output, pilot)
         with self.assertRaises(ForgeError):

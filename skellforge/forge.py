@@ -450,7 +450,7 @@ def build_native_pilot(
     if not (source / "CMakeLists.txt").is_file():
         raise ForgeError(f"Expected a SkellNative VST3 checkout at {source}")
     build = output.expanduser().resolve()
-    if build == checkout or build in source.parents or build == source:
+    if build == checkout or build in checkout.parents or checkout in build.parents:
         raise ForgeError("Native build output must be separate from source directories")
     command = [cmake, "-S", str(source), "-B", str(build), "-A", "x64",
                f"-D{option}=ON", f"-DPython3_EXECUTABLE={sys.executable}"]
