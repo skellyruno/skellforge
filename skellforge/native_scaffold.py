@@ -128,9 +128,12 @@ def normalize(folder, name, processor, controller):
         data = json.loads(source)
     except json.JSONDecodeError:
         data = json.loads(strip_commas(source))
-    classes = data.get("Classes", [])
-    if not isinstance(classes, list) or len(classes) != 2:
-        raise ValueError("Expected exactly two factory classes")
+    if not isinstance(data, dict):
+        raise ValueError("moduleinfo.json root must be an object")
+    classes = data.get("Classes")
+    if (not isinstance(classes, list) or len(classes) != 2
+            or any(not isinstance(item, dict) for item in classes)):
+        raise ValueError("Expected exactly two factory class objects")
     ids = {str(c.get("CID", "")).upper() for c in classes}
     categories = {c.get("Category") for c in classes}
     if data.get("Name") != name or data.get("Version") != "0.1.0" or (
