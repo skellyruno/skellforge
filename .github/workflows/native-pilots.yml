@@ -103,7 +103,8 @@ jobs:
             status = "EXPERIMENTAL_NOT_RELEASE_READY"
             source_commit = "3823a067aaa59eb591fdeaed93080f09b279e6e4"
             steinberg_commit = "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96"
-            skellforge_commit = "${{ github.sha }}"
+            skellforge_commit = "${{ github.event.pull_request.head.sha || github.sha }}"
+            skellforge_ci_checkout_commit = "${{ github.sha }}"
             checks = [ordered]@{
               generated_vst3 = "PASSED"
               mini_binary_audio = "PASSED"
@@ -118,7 +119,7 @@ jobs:
           $manifest | ConvertTo-Json -Depth 6 | Set-Content native-pilot-build.json -Encoding utf8
           Write-Output (Get-Content native-pilot-build.json -Raw)
       - name: Upload development VST3 bundles and immutable-checksum report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SkellForge-Native-Mini-Spacer-DEV-Windows-VST3
           path: |
