@@ -36,10 +36,13 @@ set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES ON CACHE BOOL "" FORCE)
 set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "" FORCE)
 include(FetchContent)
 if(SKELLNATIVE_STEINBERG_SDK)
-  if(NOT EXISTS "@@D@@{SKELLNATIVE_STEINBERG_SDK}/public.sdk/CMakeLists.txt" OR
-     NOT EXISTS "@@D@@{SKELLNATIVE_STEINBERG_SDK}/pluginterfaces/CMakeLists.txt")
-    message(FATAL_ERROR "Steinberg SDK must be complete (recursive)")
-  endif()
+  foreach(required IN ITEMS CMakeLists.txt public.sdk/source/vst/vstaudioeffect.h
+      pluginterfaces/vst/ivstaudioprocessor.h base/source/fobject.h
+      cmake/modules/SMTG_AddVST3Library.cmake)
+    if(NOT EXISTS "@@D@@{SKELLNATIVE_STEINBERG_SDK}/@@D@@{required}")
+      message(FATAL_ERROR "Steinberg SDK must be complete (recursive): missing @@D@@{required}")
+    endif()
+  endforeach()
   add_subdirectory("@@D@@{SKELLNATIVE_STEINBERG_SDK}" "@@D@@{CMAKE_BINARY_DIR}/steinberg")
 else()
   FetchContent_Declare(skell_steinberg_sdk

@@ -42,13 +42,21 @@ jobs:
           path: deps/skellnative
       - name: Run deterministic native generator tests
         run: python -m unittest discover -s tests -p test_native_scaffold.py -v
+      - name: Check out the pinned official Steinberg SDK
+        uses: actions/checkout@v5
+        with:
+          repository: steinbergmedia/vst3sdk
+          ref: 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          submodules: recursive
+          path: deps/vst3sdk
       - name: Generate brand-new SkellLang-driven Gain VST3 project
         run: python -m skellforge new-native "Skell Forge Test" native-generated --code QZ92 --sdk deps/skellnative
       - name: Configure independent JUCE-free generated VST3
         shell: pwsh
         run: |
           $sdk = (Resolve-Path deps/skellnative).Path
-          cmake -S native-generated -B native-generated/build -A x64 "-DSKELLNATIVE_ROOT=$sdk"
+          $steinberg = (Resolve-Path deps/vst3sdk).Path
+          cmake -S native-generated -B native-generated/build -A x64 "-DSKELLNATIVE_ROOT=$sdk" "-DSKELLNATIVE_STEINBERG_SDK=$steinberg"
       - name: Build generated Steinberg VST3 and native Win32 editor
         run: cmake --build native-generated/build --config Release --parallel 2
       - name: Run official Steinberg VST3 validator
