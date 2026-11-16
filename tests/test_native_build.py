@@ -54,8 +54,8 @@ class NativeBuildTests(unittest.TestCase):
     def test_ctest_uses_sibling_executable_without_changing_global_platform(self, which, run):
         build_native_pilot(self.sdk, self.root / 'build', 'spacer')
         self.assertEqual(run.call_count, 3)
-        self.assertEqual(run.call_args_list[2].args[0][0],
-                         '/opt/CMake With Spaces/bin/ctest.exe')
+        self.assertEqual(Path(run.call_args_list[2].args[0][0]),
+                         Path('/opt/CMake With Spaces/bin/ctest.exe'))
         self.assertIn('SkellNativeControlTests', run.call_args_list[2].args[0][-1])
         which.assert_called_once_with('cmake')
 
