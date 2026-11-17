@@ -25,7 +25,7 @@ def strip_trailing_commas(text: str) -> str:
             result.append(char)
             if escaped:
                 escaped = False
-            elif char == "\\\\":
+            elif char == "\\":
                 escaped = True
             elif char == '"':
                 quoted = False
@@ -99,9 +99,9 @@ def normalize(build_root: Path, product: str) -> Path:
     if len(ids) != 2 or categories != expected_categories:
         raise ValueError("VST3 factory class IDs must be distinct and both required categories present")
 
-    strict = json.dumps(data, indent=2, ensure_ascii=False) + "\\n"
+    strict = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     if strict != source:
-        metadata.write_text(strict, encoding="utf-8", newline="\\n")
+        metadata.write_text(strict, encoding="utf-8", newline="\n")
     round_trip = json.loads(metadata.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
     if round_trip != data:
         raise ValueError("Strict moduleinfo.json round-trip failed")
