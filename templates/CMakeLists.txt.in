@@ -69,7 +69,7 @@ target_link_libraries(@@TARGET@@ PRIVATE
 # JUCE's generated moduleinfo.json can contain trailing commas. Normalize it
 # after the VST3 bundle is written and fail the build on ambiguous/invalid metadata.
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
-add_custom_command(TARGET @@TARGET@@ POST_BUILD
+add_custom_command(TARGET @@TARGET@@_VST3 POST_BUILD
   COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/normalize_moduleinfo.py"
     "${CMAKE_BINARY_DIR}" "@@NAME@@"
   VERBATIM)

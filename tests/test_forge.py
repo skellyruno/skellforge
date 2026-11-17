@@ -39,6 +39,7 @@ class ForgeTests(unittest.TestCase):
         self.assertNotIn("@@", cmake)
         self.assertIn("find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)", cmake)
         self.assertIn("tools/normalize_moduleinfo.py", cmake)
+        self.assertIn("add_custom_command(TARGET SkellPulse_VST3 POST_BUILD", cmake)
         self.assertTrue((self.project / "tools" / "normalize_moduleinfo.py").is_file())
         proc = (self.project / "Source" / "PluginProcessor.cpp").read_text()
         self.assertIn("gain_db", proc)
