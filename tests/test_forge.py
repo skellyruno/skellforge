@@ -77,7 +77,7 @@ class ForgeTests(unittest.TestCase):
         data = json.loads(normalized)
         self.assertEqual(data["Description"], "literal ,} and ,] stay inside this string")
         self.assertEqual(len(data["Classes"]), 2)
-        self.assertTrue(normalized.endswith("\\n"))
+        self.assertTrue(normalized.endswith("\n"))
         self.assertEqual(normalize(self.project / "build", "Skell Pulse"), metadata)
 
         duplicate = source.replace(
