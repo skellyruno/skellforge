@@ -1,0 +1,114 @@
+"""Normalize JUCE-generated VST3 metadata to strict, identity-checked JSON."""
+from __future__ import annotations
+
+import json
+import re
+import sys
+from pathlib import Path
+
+
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key in moduleinfo.json: {key}")
+        result[key] = value
+    return result
+
+
+def strip_trailing_commas(text: str) -> str:
+    """Remove commas before } or ] without changing quoted string contents."""
+    result = []
+    quoted = escaped = False
+    for index, char in enumerate(text):
+        if quoted:
+            result.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+            result.append(char)
+        elif char == ",":
+            lookahead = index + 1
+            while lookahead < len(text) and text[lookahead].isspace():
+                lookahead += 1
+            if lookahead >= len(text) or text[lookahead] not in "}]":
+                result.append(char)
+        else:
+            result.append(char)
+    return "".join(result)
+
+
+def load_moduleinfo(source: str) -> dict:
+    try:
+        data = json.loads(source, object_pairs_hook=reject_duplicate_keys)
+    except json.JSONDecodeError as original:
+        repaired = strip_trailing_commas(source)
+        if repaired == source:
+            raise ValueError(f"Invalid moduleinfo.json: {original}") from original
+        try:
+            data = json.loads(repaired, object_pairs_hook=reject_duplicate_keys)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid moduleinfo.json after trailing-comma repair: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError("moduleinfo.json root must be an object")
+    return data
+
+
+def normalize(build_root: Path, product: str) -> Path:
+    root = build_root.expanduser().resolve(strict=True)
+    matches = sorted(
+        path for path in root.rglob(product + ".vst3")
+        if path.is_dir() and not path.is_symlink()
+    )
+    if len(matches) != 1:
+        raise ValueError(f"Expected exactly one {product}.vst3 bundle under {root}; found {len(matches)}")
+    metadata = matches[0] / "Contents" / "Resources" / "moduleinfo.json"
+    if metadata.is_symlink() or not metadata.is_file():
+        raise ValueError("VST3 bundle is missing a regular Contents/Resources/moduleinfo.json")
+    source = metadata.read_text(encoding="utf-8")
+    data = load_moduleinfo(source)
+
+    if data.get("Name") != product or data.get("Version") != "0.1.0":
+        raise ValueError("moduleinfo.json product name/version does not match the generated project")
+    factory = data.get("Factory Info")
+    if not isinstance(factory, dict) or factory.get("Vendor") != "Skell Audio":
+        raise ValueError("moduleinfo.json Factory Info vendor must be Skell Audio")
+
+    classes = data.get("Classes")
+    if not isinstance(classes, list) or len(classes) != 2 or any(not isinstance(item, dict) for item in classes):
+        raise ValueError("moduleinfo.json must contain exactly two factory class objects")
+    expected_categories = {"Audio Module Class", "Component Controller Class"}
+    categories = set()
+    ids = set()
+    for item in classes:
+        cid = item.get("CID")
+        category = item.get("Category")
+        if not isinstance(cid, str) or not re.fullmatch(r"[0-9A-Fa-f]{32}", cid):
+            raise ValueError("Each factory class must have a 32-character hexadecimal CID")
+        if category not in expected_categories:
+            raise ValueError("Unexpected VST3 factory class category")
+        if item.get("Name") != product or item.get("Vendor") != "Skell Audio":
+            raise ValueError("VST3 factory class product/vendor does not match the generated project")
+        ids.add(cid.upper())
+        categories.add(category)
+    if len(ids) != 2 or categories != expected_categories:
+        raise ValueError("VST3 factory class IDs must be distinct and both required categories present")
+
+    strict = json.dumps(data, indent=2, ensure_ascii=False) + "\\n"
+    if strict != source:
+        metadata.write_text(strict, encoding="utf-8", newline="\\n")
+    round_trip = json.loads(metadata.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_keys)
+    if round_trip != data:
+        raise ValueError("Strict moduleinfo.json round-trip failed")
+    return metadata
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 3:
+        sys.exit("Usage: normalize_moduleinfo.py BUILD_ROOT PRODUCT_NAME")
+    normalize(Path(sys.argv[1]), sys.argv[2])
