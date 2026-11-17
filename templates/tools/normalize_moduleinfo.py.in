@@ -90,8 +90,8 @@ def normalize(build_root: Path, product: str) -> Path:
         category = item.get("Category")
         if not isinstance(cid, str) or not re.fullmatch(r"[0-9A-Fa-f]{32}", cid):
             raise ValueError("Each factory class must have a 32-character hexadecimal CID")
-        if category not in expected_categories:
-            raise ValueError("Unexpected VST3 factory class category")
+        if not isinstance(category, str) or category not in expected_categories:
+            raise ValueError("Each factory class must have a supported string Category")
         if item.get("Name") != product or item.get("Vendor") != "Skell Audio":
             raise ValueError("VST3 factory class product/vendor does not match the generated project")
         ids.add(cid.upper())

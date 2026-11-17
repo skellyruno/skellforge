@@ -78,16 +78,27 @@ class ForgeTests(unittest.TestCase):
         self.assertEqual(data["Description"], "literal ,} and ,] stay inside this string")
         self.assertEqual(len(data["Classes"]), 2)
         self.assertTrue(normalized.endswith("\n"))
-        self.assertEqual(normalize(self.project / "build", "Skell Pulse"), metadata)
+        self.assertEqual(normalize(self.project / "build", "Skell Pulse").resolve(), metadata.resolve())
 
         duplicate = source.replace(
             '"Name": "Skell Pulse",',
-            '"Name": "Skell Pulse",\\n  "Name": "Ambiguous",',
+            '"Name": "Skell Pulse",\n  "Name": "Ambiguous",',
             1,
         )
         metadata.write_text(duplicate, encoding="utf-8")
         original = metadata.read_bytes()
         with self.assertRaisesRegex(ValueError, "Duplicate JSON key"):
+            normalize(self.project / "build", "Skell Pulse")
+        self.assertEqual(metadata.read_bytes(), original)
+
+        invalid_category = source.replace(
+            '"Category": "Audio Module Class"',
+            '"Category": []',
+            1,
+        )
+        metadata.write_text(invalid_category, encoding="utf-8")
+        original = metadata.read_bytes()
+        with self.assertRaisesRegex(ValueError, "supported string Category"):
             normalize(self.project / "build", "Skell Pulse")
         self.assertEqual(metadata.read_bytes(), original)
 

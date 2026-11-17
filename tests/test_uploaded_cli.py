@@ -45,6 +45,20 @@ class UploadedCliTests(unittest.TestCase):
         binary = self.project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3" / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
         binary.parent.mkdir(parents=True)
         binary.write_bytes(b"non-runnable test fixture")
+        bundle = binary.parents[2]
+        metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({
+            "Name": "Skell Pulse",
+            "Version": "0.1.0",
+            "Factory Info": {"Vendor": "Skell Audio"},
+            "Classes": [
+                {"CID": "ABCDEF019182FAEB536B417553463930",
+                 "Category": "Audio Module Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+                {"CID": "ABCDEF011234ABCD536B417553463930",
+                 "Category": "Component Controller Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+            ],
+        }, indent=2) + "\n", encoding="utf-8")
         package = forge.package_project(self.project)
         sidecar = Path(str(package) + ".sha256")
         self.assertEqual(sidecar.read_text(encoding="ascii"), hashlib.sha256(package.read_bytes()).hexdigest() + "  " + package.name + "\n")
