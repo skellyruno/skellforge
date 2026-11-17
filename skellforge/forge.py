@@ -302,7 +302,7 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     if not moduleinfo.is_file():
         raise ForgeError("VST3 bundle is missing Contents/Resources/moduleinfo.json")
     normalized_moduleinfo = _normalize_vst3_moduleinfo(moduleinfo)
-    moduleinfo_arcname = str(Path(bundle.name) / moduleinfo.relative_to(bundle))
+    moduleinfo_arcname = (Path(bundle.name) / moduleinfo.relative_to(bundle)).as_posix()
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")
@@ -311,23 +311,27 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in sorted(bundle.rglob("*")):
             if file.is_file():
-                arcname = str(Path(bundle.name) / file.relative_to(bundle))
+                arcname = (Path(bundle.name) / file.relative_to(bundle)).as_posix()
                 if file == moduleinfo:
                     archive.writestr(arcname, normalized_moduleinfo)
                 else:
                     archive.write(file, arcname=arcname)
+    validation_error = None
     with zipfile.ZipFile(output, "r") as archive:
-        if archive.testzip() is not None:
-            output.unlink(missing_ok=True)
-            raise ForgeError("Packaged ZIP failed integrity verification")
-        try:
-            json.loads(
-                archive.read(moduleinfo_arcname).decode("utf-8"),
-                parse_constant=_reject_non_json_constant,
-            )
-        except (KeyError, UnicodeError, ValueError) as exc:
-            output.unlink(missing_ok=True)
-            raise ForgeError("Packaged VST3 moduleinfo.json failed strict JSON validation") from exc
+        bad_member = archive.testzip()
+        if bad_member is not None:
+            validation_error = f"Packaged ZIP failed integrity verification: {bad_member}"
+        else:
+            try:
+                json.loads(
+                    archive.read(moduleinfo_arcname).decode("utf-8"),
+                    parse_constant=_reject_non_json_constant,
+                )
+            except (KeyError, UnicodeError, ValueError) as exc:
+                validation_error = f"Packaged VST3 moduleinfo.json failed strict JSON validation: {exc}"
+    if validation_error is not None:
+        output.unlink(missing_ok=True)
+        raise ForgeError(validation_error)
     return output
 
 
