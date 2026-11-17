@@ -608,7 +608,12 @@ class GeneratedCMakeConfigureTests(ProjectCase):
         juce = self.root / "juce"
         juce.mkdir()
         (juce / "CMakeLists.txt").write_text(
-            "function(juce_add_plugin target)\n  add_library(${target} MODULE)\nendfunction()\n"
+            "function(juce_add_plugin target)\n  add_library(${target} MODULE)\n"
+            "  foreach(format IN LISTS ARGN)\n"
+            "    if(format STREQUAL \"VST3\")\n"
+            "      add_library(${target}_VST3 MODULE)\n"
+            "    endif()\n"
+            "  endforeach()\nendfunction()\n"
             "function(juce_generate_juce_header target)\nendfunction()\n"
             "foreach(n juce_audio_utils juce_audio_processors juce_gui_extra)\n"
             "  add_library(${n} INTERFACE)\n  add_library(juce::${n} ALIAS ${n})\nendforeach()\n")
