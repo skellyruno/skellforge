@@ -143,12 +143,18 @@ class NewNativeTests(unittest.TestCase):
             None,
             {"Name": "Skell Fixture", "Version": "0.1.0", "Classes": "not-an-array"},
             {"Name": "Skell Fixture", "Version": "0.1.0", "Classes": [None, {}]},
+            {"Name": "Skell Fixture", "Version": "0.1.0",
+             "Classes": [{"CID": [], "Category": "Audio Module Class"},
+                         {"CID": "controller", "Category": "Component Controller Class"}]},
+            {"Name": "Skell Fixture", "Version": "0.1.0",
+             "Classes": [{"CID": "processor", "Category": []},
+                         {"CID": "controller", "Category": "Component Controller Class"}]},
         ]
         for doc in invalid_docs:
             with self.subTest(document=doc):
                 path.write_text(json.dumps(doc), encoding="utf-8")
                 original = path.read_bytes()
-                with self.assertRaisesRegex(ValueError, "moduleinfo.json root|factory class objects"):
+                with self.assertRaisesRegex(ValueError, "moduleinfo.json root|factory class objects|string CID and Category"):
                     normalize(self.root / "build", "Skell Fixture",
                               manifest["processor_cid"], manifest["controller_cid"])
                 self.assertEqual(path.read_bytes(), original)
