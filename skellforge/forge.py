@@ -210,6 +210,61 @@ def build_project(project: Path, juce_path: Path | None = None,
                     "--parallel", str(parallel)], check=True)
 
 
+
+def _strip_json_trailing_commas(source: str) -> str:
+    """Remove JUCE's trailing commas without touching commas inside JSON strings."""
+    output: list[str] = []
+    in_string = False
+    escaped = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+        if char == ",":
+            lookahead = index + 1
+            while lookahead < len(source) and source[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(source) and source[lookahead] in "}]":
+                index += 1
+                continue
+        output.append(char)
+        index += 1
+    return "".join(output)
+
+
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON constant: {value}")
+
+
+def _normalize_vst3_moduleinfo(path: Path) -> str:
+    """Return strict JSON for the package without modifying the built bundle."""
+    try:
+        source = path.read_text(encoding="utf-8")
+        metadata = json.loads(
+            _strip_json_trailing_commas(source),
+            parse_constant=_reject_non_json_constant,
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ForgeError(f"Invalid VST3 moduleinfo.json: {exc}") from exc
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("Classes"), list) or not metadata["Classes"]:
+        raise ForgeError("VST3 moduleinfo.json must contain a non-empty Classes array")
+    return json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
+
+
 def package_project(project: Path, output: Path | None = None) -> Path:
     data = validate_project(project)
     project = project.resolve()
@@ -243,6 +298,11 @@ def package_project(project: Path, output: Path | None = None) -> Path:
         raise ForgeError("VST3 binary is not a supported Windows x64 PE image")
     if header[pe_offset + 24:pe_offset + 26] != b"\x0b\x02":
         raise ForgeError("VST3 binary must use the PE32+ x64 format")
+    moduleinfo = bundle / "Contents" / "Resources" / "moduleinfo.json"
+    if not moduleinfo.is_file():
+        raise ForgeError("VST3 bundle is missing Contents/Resources/moduleinfo.json")
+    normalized_moduleinfo = _normalize_vst3_moduleinfo(moduleinfo)
+    moduleinfo_arcname = str(Path(bundle.name) / moduleinfo.relative_to(bundle))
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")
@@ -251,11 +311,23 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in sorted(bundle.rglob("*")):
             if file.is_file():
-                archive.write(file, arcname=str(Path(bundle.name) / file.relative_to(bundle)))
+                arcname = str(Path(bundle.name) / file.relative_to(bundle))
+                if file == moduleinfo:
+                    archive.writestr(arcname, normalized_moduleinfo)
+                else:
+                    archive.write(file, arcname=arcname)
     with zipfile.ZipFile(output, "r") as archive:
         if archive.testzip() is not None:
             output.unlink(missing_ok=True)
             raise ForgeError("Packaged ZIP failed integrity verification")
+        try:
+            json.loads(
+                archive.read(moduleinfo_arcname).decode("utf-8"),
+                parse_constant=_reject_non_json_constant,
+            )
+        except (KeyError, UnicodeError, ValueError) as exc:
+            output.unlink(missing_ok=True)
+            raise ForgeError("Packaged VST3 moduleinfo.json failed strict JSON validation") from exc
     return output
 
 

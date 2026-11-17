@@ -125,10 +125,59 @@ class ForgeTests(unittest.TestCase):
         binary = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
         binary.parent.mkdir(parents=True)
         binary.write_bytes(self.pe64_fixture())
+        moduleinfo = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        moduleinfo.parent.mkdir(parents=True)
+        moduleinfo_source = (
+            '{\n'
+            '  "Name": "Skell, } Pulse",\n'
+            '  "Description": "comma ,] stays inside this string",\n'
+            '  "Classes": [\n'
+            '    {"CID": "ABCDEF019182FAEB536B417553463930", "Snapshots": [],},\n'
+            '  ],\n'
+            '}\n'
+        )
+        moduleinfo.write_text(moduleinfo_source, encoding="utf-8")
         output = package_project(self.project)
         with zipfile.ZipFile(output) as archive:
-            self.assertEqual(archive.namelist(), ["Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3"])
+            self.assertEqual(
+                archive.namelist(),
+                [
+                    "Skell Pulse.vst3/Contents/Resources/moduleinfo.json",
+                    "Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3",
+                ],
+            )
+            packaged = json.loads(
+                archive.read("Skell Pulse.vst3/Contents/Resources/moduleinfo.json").decode("utf-8")
+            )
+            self.assertEqual(packaged["Name"], "Skell, } Pulse")
+            self.assertEqual(packaged["Description"], "comma ,] stays inside this string")
+            self.assertEqual(len(packaged["Classes"]), 1)
+        self.assertEqual(moduleinfo.read_text(encoding="utf-8"), moduleinfo_source)
         with self.assertRaisesRegex(ForgeError, "overwrite"):
+            package_project(self.project)
+
+    def test_package_requires_strict_moduleinfo_json(self):
+        self.make()
+        bundle = self.project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3"
+        binary = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(self.pe64_fixture())
+        moduleinfo = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        moduleinfo.parent.mkdir(parents=True)
+        for payload in ('{"Name":"broken","Classes":[,]}', '{"Name":"bad","Classes":[{}],"Value":NaN}'):
+            with self.subTest(payload=payload):
+                moduleinfo.write_text(payload, encoding="utf-8")
+                with self.assertRaisesRegex(ForgeError, "moduleinfo"):
+                    package_project(self.project)
+                self.assertFalse((self.project / "SkellForge-SkellPulse-Windows-VST3.zip").exists())
+
+    def test_package_requires_moduleinfo_file(self):
+        self.make()
+        bundle = self.project / "build" / "SkellPulse_artefacts" / "Release" / "VST3" / "Skell Pulse.vst3"
+        binary = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(self.pe64_fixture())
+        with self.assertRaisesRegex(ForgeError, "moduleinfo.json"):
             package_project(self.project)
 
     def test_package_detects_duplicates(self):
