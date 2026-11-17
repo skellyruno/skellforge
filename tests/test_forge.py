@@ -162,7 +162,7 @@ class ForgeTests(unittest.TestCase):
                 {"CID": "ABCDEF011234ABCD536B417553463930",
                  "Category": "Component Controller Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
             ],
-        }, indent=2) + "\\n", encoding="utf-8")
+        }, indent=2) + "\n", encoding="utf-8")
         output = package_project(self.project)
         with zipfile.ZipFile(output) as archive:
             self.assertEqual(archive.namelist(), ["Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3"])
