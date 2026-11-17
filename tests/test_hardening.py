@@ -67,7 +67,7 @@ class ProjectCase(unittest.TestCase):
                 {"CID": "ABCDEF011234ABCD536B417553463930",
                  "Category": "Component Controller Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
             ],
-        }, indent=2) + "\\n", encoding="utf-8")
+        }, indent=2) + "\n", encoding="utf-8")
 
 
 class IdentityRulesTests(unittest.TestCase):
