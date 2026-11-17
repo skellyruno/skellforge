@@ -54,6 +54,20 @@ class ProjectCase(unittest.TestCase):
         binary = self.project.joinpath("build", "SkellPulse_artefacts", *parts) / BUNDLE_REL
         binary.parent.mkdir(parents=True)
         binary.write_bytes(b"surrogate binary")
+        bundle = binary.parents[2]
+        metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({
+            "Name": "Skell Pulse",
+            "Version": "0.1.0",
+            "Factory Info": {"Vendor": "Skell Audio"},
+            "Classes": [
+                {"CID": "ABCDEF019182FAEB536B417553463930",
+                 "Category": "Audio Module Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+                {"CID": "ABCDEF011234ABCD536B417553463930",
+                 "Category": "Component Controller Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+            ],
+        }, indent=2) + "\\n", encoding="utf-8")
 
 
 class IdentityRulesTests(unittest.TestCase):
@@ -328,6 +342,25 @@ class BuildTests(ProjectCase):
 
 
 class PackageHardeningTests(ProjectCase):
+    def test_rejects_non_strict_or_duplicate_moduleinfo_before_package(self):
+        self.make()
+        self.fake_bundle("Release", "VST3")
+        bundle = (self.project / "build" / "SkellPulse_artefacts" / "Release"
+                  / "VST3" / "Skell Pulse.vst3")
+        metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        invalid_documents = (
+            '{"Name":"Skell Pulse","Name":"Ambiguous"}',
+            '{"Name":"Skell Pulse",}',
+        )
+        for source in invalid_documents:
+            with self.subTest(source=source):
+                metadata.write_text(source, encoding="utf-8")
+                original = metadata.read_bytes()
+                with self.assertRaisesRegex(ForgeError, "moduleinfo.json must be strict JSON"):
+                    package_project(self.project)
+                self.assertEqual(metadata.read_bytes(), original)
+                self.assertFalse((self.project / "SkellForge-SkellPulse-Windows-VST3.zip").exists())
+
     def test_rejects_two_binaries_inside_one_bundle(self):
         self.make()
         self.fake_bundle("Release", "VST3")
