@@ -352,6 +352,56 @@ def build_project(project: Path, juce_path: Path | None = None,
                     "--parallel", str(parallel)], check=True)
 
 
+def _reject_duplicate_json_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def _validate_vst3_moduleinfo(bundle: Path, product: str) -> None:
+    metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+    if metadata.is_symlink() or not metadata.is_file():
+        raise ForgeError("VST3 bundle is missing a regular moduleinfo.json")
+    try:
+        data = json.loads(
+            metadata.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except (OSError, ValueError, RecursionError) as exc:
+        raise ForgeError(f"VST3 moduleinfo.json must be strict JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ForgeError("VST3 moduleinfo.json root must be an object")
+    if data.get("Name") != product or data.get("Version") != "0.1.0":
+        raise ForgeError("VST3 moduleinfo.json product name/version mismatch")
+    factory = data.get("Factory Info")
+    if not isinstance(factory, dict) or factory.get("Vendor") != "Skell Audio":
+        raise ForgeError("VST3 moduleinfo.json Factory Info vendor mismatch")
+    classes = data.get("Classes")
+    if not isinstance(classes, list) or len(classes) != 2 or any(
+        not isinstance(item, dict) for item in classes
+    ):
+        raise ForgeError("VST3 moduleinfo.json must contain exactly two factory class objects")
+    expected_categories = {"Audio Module Class", "Component Controller Class"}
+    categories = set()
+    ids = set()
+    for item in classes:
+        cid = item.get("CID")
+        category = item.get("Category")
+        if not isinstance(cid, str) or not re.fullmatch(r"[0-9A-Fa-f]{32}", cid):
+            raise ForgeError("VST3 moduleinfo.json factory class CID must be 32 hexadecimal characters")
+        if not isinstance(category, str) or category not in expected_categories:
+            raise ForgeError("VST3 moduleinfo.json contains an unexpected factory class category")
+        if item.get("Name") != product or item.get("Vendor") != "Skell Audio":
+            raise ForgeError("VST3 moduleinfo.json factory class product/vendor mismatch")
+        ids.add(cid.upper())
+        categories.add(category)
+    if len(ids) != 2 or categories != expected_categories:
+        raise ForgeError("VST3 moduleinfo.json factory classes need distinct IDs and both required categories")
+
+
 def package_project(project: Path, output: Path | None = None) -> Path:
     data = validate_project(project)
     project = project.resolve()
@@ -376,6 +426,7 @@ def package_project(project: Path, output: Path | None = None) -> Path:
         raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
     if binaries[0].relative_to(bundle).parts[:2] != ("Contents", "x86_64-win"):
         raise ForgeError("VST3 binary must be inside Contents/x86_64-win")
+    _validate_vst3_moduleinfo(bundle, data["name"])
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
     if output.is_symlink() or bundle.resolve() in output.resolve(strict=False).parents:
         raise ForgeError("Package destination must not be a symlink or inside the VST3 bundle")

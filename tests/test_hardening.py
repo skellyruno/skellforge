@@ -54,6 +54,20 @@ class ProjectCase(unittest.TestCase):
         binary = self.project.joinpath("build", "SkellPulse_artefacts", *parts) / BUNDLE_REL
         binary.parent.mkdir(parents=True)
         binary.write_bytes(b"surrogate binary")
+        bundle = binary.parents[2]
+        metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({
+            "Name": "Skell Pulse",
+            "Version": "0.1.0",
+            "Factory Info": {"Vendor": "Skell Audio"},
+            "Classes": [
+                {"CID": "ABCDEF019182FAEB536B417553463930",
+                 "Category": "Audio Module Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+                {"CID": "ABCDEF011234ABCD536B417553463930",
+                 "Category": "Component Controller Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+            ],
+        }, indent=2) + "\n", encoding="utf-8")
 
 
 class IdentityRulesTests(unittest.TestCase):
@@ -328,6 +342,25 @@ class BuildTests(ProjectCase):
 
 
 class PackageHardeningTests(ProjectCase):
+    def test_rejects_non_strict_or_duplicate_moduleinfo_before_package(self):
+        self.make()
+        self.fake_bundle("Release", "VST3")
+        bundle = (self.project / "build" / "SkellPulse_artefacts" / "Release"
+                  / "VST3" / "Skell Pulse.vst3")
+        metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        invalid_documents = (
+            '{"Name":"Skell Pulse","Name":"Ambiguous"}',
+            '{"Name":"Skell Pulse",}',
+        )
+        for source in invalid_documents:
+            with self.subTest(source=source):
+                metadata.write_text(source, encoding="utf-8")
+                original = metadata.read_bytes()
+                with self.assertRaisesRegex(ForgeError, "moduleinfo.json must be strict JSON"):
+                    package_project(self.project)
+                self.assertEqual(metadata.read_bytes(), original)
+                self.assertFalse((self.project / "SkellForge-SkellPulse-Windows-VST3.zip").exists())
+
     def test_rejects_two_binaries_inside_one_bundle(self):
         self.make()
         self.fake_bundle("Release", "VST3")
@@ -377,13 +410,19 @@ class PackageHardeningTests(ProjectCase):
         self.fake_bundle("Release", "VST3")
         self.fake_bundle("Debug", "VST3")
         with zipfile.ZipFile(package_project(self.project)) as archive:
-            self.assertEqual(archive.namelist(), [BUNDLE_REL.as_posix()])
+            self.assertEqual(archive.namelist(), [
+                "Skell Pulse.vst3/Contents/Resources/moduleinfo.json",
+                BUNDLE_REL.as_posix(),
+            ])
 
     def test_single_config_layout_without_config_folder(self):
         self.make()
         self.fake_bundle("VST3")
         with zipfile.ZipFile(package_project(self.project)) as archive:
-            self.assertEqual(archive.namelist(), [BUNDLE_REL.as_posix()])
+            self.assertEqual(archive.namelist(), [
+                "Skell Pulse.vst3/Contents/Resources/moduleinfo.json",
+                BUNDLE_REL.as_posix(),
+            ])
 
     def test_failed_integrity_check_leaves_no_partial_zip(self):
         self.make()
@@ -569,7 +608,13 @@ class GeneratedCMakeConfigureTests(ProjectCase):
         juce = self.root / "juce"
         juce.mkdir()
         (juce / "CMakeLists.txt").write_text(
-            "function(juce_add_plugin target)\n  add_library(${target} MODULE)\nendfunction()\n"
+            "function(juce_add_plugin target)\n  add_library(${target} MODULE)\n"
+            "  foreach(format IN LISTS ARGN)\n"
+            "    if(format STREQUAL \"VST3\")\n"
+            "      file(WRITE \"${CMAKE_CURRENT_BINARY_DIR}/vst3_stub.cpp\" \"int skellforge_vst3_stub = 0;\")\n"
+            "      add_library(${target}_VST3 MODULE \"${CMAKE_CURRENT_BINARY_DIR}/vst3_stub.cpp\")\n"
+            "    endif()\n"
+            "  endforeach()\nendfunction()\n"
             "function(juce_generate_juce_header target)\nendfunction()\n"
             "foreach(n juce_audio_utils juce_audio_processors juce_gui_extra)\n"
             "  add_library(${n} INTERFACE)\n  add_library(juce::${n} ALIAS ${n})\nendforeach()\n")

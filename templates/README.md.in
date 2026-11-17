@@ -14,7 +14,7 @@ using JUCE 8 and an immutable SkellCore revision.
 
 ## Build on Windows
 
-Install Git, CMake and Visual Studio with Desktop development with C++.
+Install Python 3.10+, Git, CMake and Visual Studio with Desktop development with C++.
 
 ```powershell
 cmake -S . -B build -A x64
