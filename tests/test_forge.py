@@ -165,7 +165,10 @@ class ForgeTests(unittest.TestCase):
         }, indent=2) + "\n", encoding="utf-8")
         output = package_project(self.project)
         with zipfile.ZipFile(output) as archive:
-            self.assertEqual(archive.namelist(), ["Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3"])
+            self.assertEqual(archive.namelist(), [
+                "Skell Pulse.vst3/Contents/Resources/moduleinfo.json",
+                "Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3",
+            ])
         with self.assertRaisesRegex(ForgeError, "overwrite"):
             package_project(self.project)
 
