@@ -410,13 +410,19 @@ class PackageHardeningTests(ProjectCase):
         self.fake_bundle("Release", "VST3")
         self.fake_bundle("Debug", "VST3")
         with zipfile.ZipFile(package_project(self.project)) as archive:
-            self.assertEqual(archive.namelist(), [BUNDLE_REL.as_posix()])
+            self.assertEqual(archive.namelist(), [
+                "Skell Pulse.vst3/Contents/Resources/moduleinfo.json",
+                BUNDLE_REL.as_posix(),
+            ])
 
     def test_single_config_layout_without_config_folder(self):
         self.make()
         self.fake_bundle("VST3")
         with zipfile.ZipFile(package_project(self.project)) as archive:
-            self.assertEqual(archive.namelist(), [BUNDLE_REL.as_posix()])
+            self.assertEqual(archive.namelist(), [
+                "Skell Pulse.vst3/Contents/Resources/moduleinfo.json",
+                BUNDLE_REL.as_posix(),
+            ])
 
     def test_failed_integrity_check_leaves_no_partial_zip(self):
         self.make()
