@@ -22,6 +22,11 @@ jobs:
         run: cmake -S . -B build -A x64
       - name: Build VST3
         run: cmake --build build --config Release --parallel 2
+      - name: Verify strict moduleinfo JSON
+        shell: pwsh
+        run: |
+          & python tools/normalize_moduleinfo.py "build/@@TARGET@@_artefacts" "@@NAME@@"
+          if ($LASTEXITCODE -ne 0) { throw "VST3 moduleinfo validation failed" }
       - name: Verify exact VST3 bundle and package
         shell: pwsh
         run: |
