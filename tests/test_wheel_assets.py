@@ -13,7 +13,8 @@ class WheelAssetsTests(unittest.TestCase):
         self.assertTrue(forge.KNOWN_CODES.is_file())
         for relative in ("CMakeLists.txt.in", ".gitignore.in",
                          ".github/workflows/build.yml.in",
-                         "Source/PluginProcessor.cpp.in", "Source/PluginEditor.cpp.in"):
+                         "Source/PluginProcessor.cpp.in", "Source/PluginEditor.cpp.in",
+                         "tools/normalize_moduleinfo.py.in"):
             with self.subTest(relative=relative):
                 self.assertTrue((forge.TEMPLATES / relative).is_file())
 
