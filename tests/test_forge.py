@@ -150,6 +150,19 @@ class ForgeTests(unittest.TestCase):
         binary = bundle / "Contents" / "x86_64-win" / "Skell Pulse.vst3"
         binary.parent.mkdir(parents=True)
         binary.write_bytes(b"example VST3 signature surrogate - not a distributable binary")
+        metadata = bundle / "Contents" / "Resources" / "moduleinfo.json"
+        metadata.parent.mkdir(parents=True)
+        metadata.write_text(json.dumps({
+            "Name": "Skell Pulse",
+            "Version": "0.1.0",
+            "Factory Info": {"Vendor": "Skell Audio"},
+            "Classes": [
+                {"CID": "ABCDEF019182FAEB536B417553463930",
+                 "Category": "Audio Module Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+                {"CID": "ABCDEF011234ABCD536B417553463930",
+                 "Category": "Component Controller Class", "Name": "Skell Pulse", "Vendor": "Skell Audio"},
+            ],
+        }, indent=2) + "\\n", encoding="utf-8")
         output = package_project(self.project)
         with zipfile.ZipFile(output) as archive:
             self.assertEqual(archive.namelist(), ["Skell Pulse.vst3/Contents/x86_64-win/Skell Pulse.vst3"])
