@@ -97,6 +97,14 @@ import json
 import sys
 from pathlib import Path
 
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key in moduleinfo.json: {key}")
+        result[key] = value
+    return result
+
 def strip_commas(text):
     result = []
     quoted = escaped = False
@@ -125,14 +133,23 @@ def normalize(folder, name, processor, controller):
     metadata = matches[0] / "Contents" / "Resources" / "moduleinfo.json"
     source = metadata.read_text(encoding="utf-8")
     try:
-        data = json.loads(source)
+        data = json.loads(source, object_pairs_hook=reject_duplicate_keys)
     except json.JSONDecodeError:
-        data = json.loads(strip_commas(source))
-    classes = data.get("Classes", [])
-    if not isinstance(classes, list) or len(classes) != 2:
-        raise ValueError("Expected exactly two factory classes")
-    ids = {str(c.get("CID", "")).upper() for c in classes}
-    categories = {c.get("Category") for c in classes}
+        data = json.loads(strip_commas(source), object_pairs_hook=reject_duplicate_keys)
+    if not isinstance(data, dict):
+        raise ValueError("moduleinfo.json root must be an object")
+    classes = data.get("Classes")
+    if (not isinstance(classes, list) or len(classes) != 2
+            or any(not isinstance(item, dict) for item in classes)):
+        raise ValueError("Expected exactly two factory class objects")
+    if any(not isinstance(item.get("CID"), str)
+           or not item["CID"].strip()
+           or not isinstance(item.get("Category"), str)
+           or not item["Category"].strip()
+           for item in classes):
+        raise ValueError("Each factory class must have string CID and Category")
+    ids = {item["CID"].upper() for item in classes}
+    categories = {item["Category"] for item in classes}
     if data.get("Name") != name or data.get("Version") != "0.1.0" or (
         ids != {processor.upper(), controller.upper()} or categories !=
         {"Audio Module Class", "Component Controller Class"}

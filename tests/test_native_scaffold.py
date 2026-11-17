@@ -131,6 +131,61 @@ class NewNativeTests(unittest.TestCase):
             normalize(self.root / "build", "Skell Fixture",
                       manifest["processor_cid"], manifest["controller_cid"])
 
+    def test_moduleinfo_schema_errors_are_actionable_and_non_mutating(self):
+        out = self.new()
+        manifest = json.loads((out / "skellnative.json").read_text())
+        normalize = runpy.run_path(str(out / "tools/normalize_moduleinfo.py"))["normalize"]
+        bundle = self.root / "build/VST3/Release/Skell Fixture.vst3"
+        path = bundle / "Contents/Resources/moduleinfo.json"
+        path.parent.mkdir(parents=True)
+        invalid_docs = [
+            [],
+            None,
+            {"Name": "Skell Fixture", "Version": "0.1.0", "Classes": "not-an-array"},
+            {"Name": "Skell Fixture", "Version": "0.1.0", "Classes": [None, {}]},
+            {"Name": "Skell Fixture", "Version": "0.1.0",
+             "Classes": [{"CID": [], "Category": "Audio Module Class"},
+                         {"CID": "controller", "Category": "Component Controller Class"}]},
+            {"Name": "Skell Fixture", "Version": "0.1.0",
+             "Classes": [{"CID": "processor", "Category": []},
+                         {"CID": "controller", "Category": "Component Controller Class"}]},
+        ]
+        for doc in invalid_docs:
+            with self.subTest(document=doc):
+                path.write_text(json.dumps(doc), encoding="utf-8")
+                original = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, "moduleinfo.json root|factory class objects|string CID and Category"):
+                    normalize(self.root / "build", "Skell Fixture",
+                              manifest["processor_cid"], manifest["controller_cid"])
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_duplicate_moduleinfo_keys_fail_closed_without_mutation(self):
+        out = self.new()
+        manifest = json.loads((out / "skellnative.json").read_text())
+        normalize = runpy.run_path(str(out / "tools/normalize_moduleinfo.py"))["normalize"]
+        bundle = self.root / "build/VST3/Release/Skell Fixture.vst3"
+        path = bundle / "Contents/Resources/moduleinfo.json"
+        path.parent.mkdir(parents=True)
+        processor = manifest["processor_cid"]
+        controller = manifest["controller_cid"]
+        raw_documents = [
+            '{"Name":"Skell Fixture","Name":"Other","Version":"0.1.0","Classes":[]}',
+            ('{"Name":"Skell Fixture","Version":"0.1.0","Classes":['
+             '{"CID":"' + processor + '","CID":"duplicate","Category":"Audio Module Class"},'
+             '{"CID":"' + controller + '","Category":"Component Controller Class"}]}'),
+            ('{"Name":"Skell Fixture","Version":"0.1.0","Classes":['
+             '{"CID":"' + processor + '","Category":"Audio Module Class"},'
+             '{"CID":"' + controller + '","Category":"Component Controller Class",'
+             '"Category":"Audio Module Class"}],}'),
+        ]
+        for source in raw_documents:
+            with self.subTest(source=source):
+                path.write_text(source, encoding="utf-8")
+                original = path.read_bytes()
+                with self.assertRaisesRegex(ValueError, "Duplicate JSON key"):
+                    normalize(self.root / "build", "Skell Fixture", processor, controller)
+                self.assertEqual(path.read_bytes(), original)
+
 
 if __name__ == "__main__":
     unittest.main()
