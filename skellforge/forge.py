@@ -210,6 +210,61 @@ def build_project(project: Path, juce_path: Path | None = None,
                     "--parallel", str(parallel)], check=True)
 
 
+
+def _strip_json_trailing_commas(source: str) -> str:
+    """Remove JUCE's trailing commas without touching commas inside JSON strings."""
+    output: list[str] = []
+    in_string = False
+    escaped = False
+    index = 0
+    while index < len(source):
+        char = source[index]
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+            continue
+        if char == ",":
+            lookahead = index + 1
+            while lookahead < len(source) and source[lookahead].isspace():
+                lookahead += 1
+            if lookahead < len(source) and source[lookahead] in "}]":
+                index += 1
+                continue
+        output.append(char)
+        index += 1
+    return "".join(output)
+
+
+def _reject_non_json_constant(value: str) -> None:
+    raise ValueError(f"Non-standard JSON constant: {value}")
+
+
+def _normalize_vst3_moduleinfo(path: Path) -> str:
+    """Return strict JSON for the package without modifying the built bundle."""
+    try:
+        source = path.read_text(encoding="utf-8")
+        metadata = json.loads(
+            _strip_json_trailing_commas(source),
+            parse_constant=_reject_non_json_constant,
+        )
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise ForgeError(f"Invalid VST3 moduleinfo.json: {exc}") from exc
+    if not isinstance(metadata, dict) or not isinstance(metadata.get("Classes"), list) or not metadata["Classes"]:
+        raise ForgeError("VST3 moduleinfo.json must contain a non-empty Classes array")
+    return json.dumps(metadata, ensure_ascii=False, indent=2) + "\n"
+
+
 def package_project(project: Path, output: Path | None = None) -> Path:
     data = validate_project(project)
     project = project.resolve()
@@ -220,8 +275,34 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
-    if not any(p.is_file() and p.suffix.lower() == ".vst3" for p in bundle.rglob("*")):
-        raise ForgeError("VST3 bundle contains no VST3 binary")
+    binaries = [p for p in bundle.rglob("*") if p.is_file() and p.suffix.lower() == ".vst3"]
+    if len(binaries) != 1:
+        raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
+    binary = binaries[0]
+    if binary.relative_to(bundle).parts[:2] != ("Contents", "x86_64-win"):
+        raise ForgeError("VST3 binary must be inside Contents/x86_64-win")
+    # Reject arbitrary text files and 32-bit PE executables masquerading as VST3s.
+    # This is a structural sanity check, not a substitute for Steinberg validation.
+    with binary.open("rb") as stream:
+        header = stream.read(4096)
+    if len(header) < 0x40 or header[:2] != b"MZ":
+        raise ForgeError("VST3 binary is not a Windows PE file (missing MZ header)")
+    pe_offset = int.from_bytes(header[0x3c:0x40], "little")
+    if pe_offset < 0x40 or pe_offset + 26 > len(header):
+        raise ForgeError("VST3 binary has an invalid or unsupported PE header offset")
+    if header[pe_offset:pe_offset + 4] != b"PE\x00\x00":
+        raise ForgeError("VST3 binary has no PE signature")
+    machine = int.from_bytes(header[pe_offset + 4:pe_offset + 6], "little")
+    optional_size = int.from_bytes(header[pe_offset + 20:pe_offset + 22], "little")
+    if machine != 0x8664 or optional_size < 2 or pe_offset + 24 + optional_size > len(header):
+        raise ForgeError("VST3 binary is not a supported Windows x64 PE image")
+    if header[pe_offset + 24:pe_offset + 26] != b"\x0b\x02":
+        raise ForgeError("VST3 binary must use the PE32+ x64 format")
+    moduleinfo = bundle / "Contents" / "Resources" / "moduleinfo.json"
+    if not moduleinfo.is_file():
+        raise ForgeError("VST3 bundle is missing Contents/Resources/moduleinfo.json")
+    normalized_moduleinfo = _normalize_vst3_moduleinfo(moduleinfo)
+    moduleinfo_arcname = (Path(bundle.name) / moduleinfo.relative_to(bundle)).as_posix()
     output = (output or (project / f"SkellForge-{data['target']}-Windows-VST3.zip")).expanduser().absolute()
     if output.exists():
         raise ForgeError(f"Will not overwrite existing package: {output}")
@@ -230,11 +311,27 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     with zipfile.ZipFile(output, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in sorted(bundle.rglob("*")):
             if file.is_file():
-                archive.write(file, arcname=str(Path(bundle.name) / file.relative_to(bundle)))
+                arcname = (Path(bundle.name) / file.relative_to(bundle)).as_posix()
+                if file == moduleinfo:
+                    archive.writestr(arcname, normalized_moduleinfo)
+                else:
+                    archive.write(file, arcname=arcname)
+    validation_error = None
     with zipfile.ZipFile(output, "r") as archive:
-        if archive.testzip() is not None:
-            output.unlink(missing_ok=True)
-            raise ForgeError("Packaged ZIP failed integrity verification")
+        bad_member = archive.testzip()
+        if bad_member is not None:
+            validation_error = f"Packaged ZIP failed integrity verification: {bad_member}"
+        else:
+            try:
+                json.loads(
+                    archive.read(moduleinfo_arcname).decode("utf-8"),
+                    parse_constant=_reject_non_json_constant,
+                )
+            except (KeyError, UnicodeError, ValueError) as exc:
+                validation_error = f"Packaged VST3 moduleinfo.json failed strict JSON validation: {exc}"
+    if validation_error is not None:
+        output.unlink(missing_ok=True)
+        raise ForgeError(validation_error)
     return output
 
 
