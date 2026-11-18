@@ -10,9 +10,26 @@ from pathlib import Path
 
 
 def _literal(text: str, key: str) -> str | None:
-    match = re.search(r"(?m)^\s*" + re.escape(key) +
-                      r"\s+(?:\"([^\"]+)\"|([A-Za-z0-9_.$/{}/+-]+))", text)
+    match = re.search(r'(?m)^\s*' + re.escape(key) +
+                      r'\s+(?:"([^"]+)"|([A-Za-z0-9_.$/{}/+-]+))', text)
     return (match.group(1) or match.group(2)) if match else None
+
+
+def _is_project_source(root: Path, candidate: Path) -> bool:
+    """Accept only regular source files physically contained in the project.
+
+    The audit is read-only, but following a symlink from a project Source/
+    directory could make it inspect unrelated files elsewhere on the machine.
+    Reject symlinked files/directories and verify the resolved file stays under
+    the selected project root before reading it.
+    """
+    try:
+        if candidate.is_symlink() or not candidate.is_file():
+            return False
+        candidate.resolve(strict=True).relative_to(root)
+        return True
+    except (OSError, RuntimeError, ValueError):
+        return False
 
 
 def audit_project(path: Path) -> dict:
@@ -29,17 +46,25 @@ def audit_project(path: Path) -> dict:
     has_core = "SkellCore::DSP" in text
     sources: list[Path] = []
     for folder in (path / "Source", path / "source", path / "src"):
-        if folder.is_dir():
-            sources.extend(p for p in folder.rglob("*")
-                           if p.is_file() and p.suffix.lower() in (".h", ".hpp", ".cpp")
-                           and len(p.relative_to(folder).parts) <= 6)
+        # Do not traverse a project source root that redirects outside the
+        # selected project. Nested symlink directories are not followed by
+        # pathlib.rglob; _is_project_source also checks each resolved file.
+        if folder.is_symlink() or not folder.is_dir():
+            continue
+        sources.extend(p for p in folder.rglob("*")
+                       if p.suffix.lower() in (".h", ".hpp", ".cpp")
+                       and len(p.relative_to(folder).parts) <= 6
+                       and _is_project_source(path, p))
     # Bound the read-only scan, so an accidental large source tree stays cheap.
     sources = sorted(set(sources))[:160]
     parameter_ids: set[str] = set()
     for file in sources:
-        if file.stat().st_size > 1024 * 1024:
+        try:
+            if file.stat().st_size > 1024 * 1024:
+                continue
+            content = file.read_text(encoding="utf-8", errors="replace")
+        except OSError:
             continue
-        content = file.read_text(encoding="utf-8", errors="replace")
         parameter_ids.update(re.findall(r'juce::ParameterID\s*\{\s*"([A-Za-z0-9_.-]+)"', content))
     warnings: list[str] = []
     if not cmake_file.is_file():
