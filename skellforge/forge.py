@@ -276,8 +276,8 @@ def _is_skellcore_source_root(root: Path) -> bool:
     except OSError:
         return False
     return (
-        re.search(r"\\badd_library\\s*\\(\\s*SkellCore::DSP\\s+ALIAS\\b", source) is not None
-        and re.search(r"\\badd_library\\s*\\(\\s*SkellCore::UI\\s+ALIAS\\b", source) is not None
+        re.search(r"\badd_library\s*\(\s*SkellCore::DSP\s+ALIAS\b", source) is not None
+        and re.search(r"\badd_library\s*\(\s*SkellCore::UI\s+ALIAS\b", source) is not None
     )
 
 
