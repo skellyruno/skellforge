@@ -16,10 +16,13 @@ Prerequisite: Python 3.10+ and a clone of this repository. No pip dependencies.
 
 ```powershell
 python -m skellforge doctor
+python -m skellforge doctor --juce-path C:/JUCE --core-path C:/src/skellcore-vst-template
 python -m skellforge new "Skell Pulse" ../skell-pulse --code SF01
 python -m skellforge validate ../skell-pulse
 python -m skellforge audit ../skell-pulse --json
 ```
+
+`doctor` checks the CMake/Git tools and validates optional local JUCE/SkellCore roots. Without local roots it reports the pinned CMake FetchContent revisions that will be fetched during configure; it does not download dependencies itself.
 
 Choose a unique four-character product code for every plugin; Forge checks
 against the 2026-11-11 SkellWorld catalog snapshot, but **this is not an

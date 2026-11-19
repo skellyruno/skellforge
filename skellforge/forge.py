@@ -238,14 +238,113 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     return output
 
 
-def doctor() -> None:
+def _pinned_juce_revision() -> str | None:
+    """Read the JUCE revision from the generated-project template."""
+    template = TEMPLATES / "CMakeLists.txt.in"
+    if not template.is_file():
+        return None
+    source = template.read_text(encoding="utf-8")
+    block = re.search(
+        r"FetchContent_Declare\s*\(\s*JUCE\b(.*?)\)",
+        source,
+        flags=re.S | re.I,
+    )
+    if not block:
+        return None
+    match = re.search(r"\bGIT_TAG\s+([^\s)]+)", block.group(1))
+    return match.group(1) if match else None
+
+
+def _is_juce_source_root(root: Path) -> bool:
+    """Require the JUCE modules used by the generated VST3 template."""
+    required = (
+        root / "CMakeLists.txt",
+        root / "modules" / "juce_core" / "juce_core.h",
+        root / "modules" / "juce_audio_processors" / "juce_audio_processors.h",
+    )
+    return all(path.is_file() for path in required)
+
+
+def _is_skellcore_source_root(root: Path) -> bool:
+    """Require the public SkellCore header and the targets linked by the template."""
+    cmake = root / "CMakeLists.txt"
+    header = root / "include" / "SkellCore" / "Core.h"
+    if not cmake.is_file() or not header.is_file():
+        return False
+    try:
+        source = cmake.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return (
+        re.search(r"\badd_library\s*\(\s*SkellCore::DSP\s+ALIAS\b", source) is not None
+        and re.search(r"\badd_library\s*\(\s*SkellCore::UI\s+ALIAS\b", source) is not None
+    )
+
+
+def doctor(juce_path: Path | None = None, core_path: Path | None = None) -> bool:
+    """Report whether local or pinned build dependencies are ready."""
     print(f"SkellForge {__version__} | Python {platform.python_version()} | {platform.system()}")
-    for binary in ("cmake", "git"):
-        print(f"  {binary}: {shutil.which(binary) or 'NOT FOUND'}")
+    cmake = shutil.which("cmake")
+    git = shutil.which("git")
+    print(f"  cmake: {cmake or 'NOT FOUND'}")
+    print(f"  git: {git or 'NOT FOUND'}")
+
+    ready = cmake is not None
+    needs_git = False
+
+    if juce_path is None:
+        juce_revision = _pinned_juce_revision()
+        if juce_revision:
+            print(f"  JUCE: CMake FetchContent (pinned {juce_revision}; fetched during configure)")
+            needs_git = True
+        else:
+            print("  JUCE: NOT READY (no pinned JUCE revision found in templates/CMakeLists.txt.in)")
+            ready = False
+    else:
+        juce_root = juce_path.expanduser().resolve()
+        if _is_juce_source_root(juce_root):
+            print(f"  JUCE: local source ({juce_root})")
+        else:
+            print(
+                f"  JUCE: INVALID local path ({juce_root}; expected CMakeLists.txt and "
+                "modules/juce_core/juce_core.h plus modules/juce_audio_processors/"
+                "juce_audio_processors.h)"
+            )
+            ready = False
+            needs_git = True
+
+    if core_path is None:
+        print(f"  SkellCore: CMake FetchContent (pinned {CORE_REV}; fetched during configure)")
+        needs_git = True
+    else:
+        core_root = core_path.expanduser().resolve()
+        valid_core_root = next(
+            (candidate for candidate in (core_root, core_root / "SkellCore")
+             if _is_skellcore_source_root(candidate)),
+            None,
+        )
+        if valid_core_root is not None:
+            print(f"  SkellCore: local source ({valid_core_root})")
+        else:
+            print(
+                f"  SkellCore: INVALID local path ({core_root}; expected CMakeLists.txt, "
+                "include/SkellCore/Core.h, and SkellCore::DSP/SkellCore::UI alias targets)"
+            )
+            ready = False
+            needs_git = True
+
+    if needs_git and git is None:
+        print("  Dependency fetch: NOT READY (Git is required; provide valid local dependency paths)")
+        ready = False
+    elif needs_git:
+        print("  Dependency fetch: Git available; network access is required on first configure")
+    else:
+        print("  Dependency fetch: not required for the selected local paths")
+
     print(f"  Windows build supported here: {sys.platform == 'win32'}")
     print(f"  shared SkellCore pin: {CORE_REV}")
-    print("  Dependencies are fetched only by CMake, not by generation.")
-
+    print(f"  Dependency readiness: {'READY' if ready else 'NOT READY'}")
+    return ready
 
 def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="skellforge", description="Skelly Windows VST3 project forge")
@@ -270,7 +369,9 @@ def parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit", help="Read-only audit of an existing JUCE plugin")
     audit.add_argument("project", type=Path)
     audit.add_argument("--json", action="store_true", help="Print machine-readable report")
-    sub.add_parser("doctor", help="Display environment and dependency status")
+    doctor_cmd = sub.add_parser("doctor", help="Check build tools and dependency sources")
+    doctor_cmd.add_argument("--juce-path", type=Path, help="Local JUCE source root")
+    doctor_cmd.add_argument("--core-path", type=Path, help="Local SkellCore repository or SkellCore subdirectory")
     return p
 
 
@@ -306,7 +407,8 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  CAUTION: {warning}")
                 print("  Automatic migration: disabled (protect IDs and DSP)")
         elif args.action == "doctor":
-            doctor()
+            if not doctor(args.juce_path, args.core_path):
+                return 1
         return 0
     except (ForgeError, OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"SkellForge error: {exc}", file=sys.stderr)
