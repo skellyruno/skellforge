@@ -255,6 +255,32 @@ def _pinned_juce_revision() -> str | None:
     return match.group(1) if match else None
 
 
+def _is_juce_source_root(root: Path) -> bool:
+    """Require the JUCE modules used by the generated VST3 template."""
+    required = (
+        root / "CMakeLists.txt",
+        root / "modules" / "juce_core" / "juce_core.h",
+        root / "modules" / "juce_audio_processors" / "juce_audio_processors.h",
+    )
+    return all(path.is_file() for path in required)
+
+
+def _is_skellcore_source_root(root: Path) -> bool:
+    """Require the public SkellCore header and the targets linked by the template."""
+    cmake = root / "CMakeLists.txt"
+    header = root / "include" / "SkellCore" / "Core.h"
+    if not cmake.is_file() or not header.is_file():
+        return False
+    try:
+        source = cmake.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return (
+        re.search(r"\\badd_library\\s*\\(\\s*SkellCore::DSP\\s+ALIAS\\b", source) is not None
+        and re.search(r"\\badd_library\\s*\\(\\s*SkellCore::UI\\s+ALIAS\\b", source) is not None
+    )
+
+
 def doctor(juce_path: Path | None = None, core_path: Path | None = None) -> bool:
     """Report whether local or pinned build dependencies are ready."""
     print(f"SkellForge {__version__} | Python {platform.python_version()} | {platform.system()}")
@@ -276,10 +302,14 @@ def doctor(juce_path: Path | None = None, core_path: Path | None = None) -> bool
             ready = False
     else:
         juce_root = juce_path.expanduser().resolve()
-        if (juce_root / "CMakeLists.txt").is_file():
+        if _is_juce_source_root(juce_root):
             print(f"  JUCE: local source ({juce_root})")
         else:
-            print(f"  JUCE: INVALID local path ({juce_root}; expected CMakeLists.txt)")
+            print(
+                f"  JUCE: INVALID local path ({juce_root}; expected CMakeLists.txt and "
+                "modules/juce_core/juce_core.h plus modules/juce_audio_processors/"
+                "juce_audio_processors.h)"
+            )
             ready = False
             needs_git = True
 
@@ -288,14 +318,17 @@ def doctor(juce_path: Path | None = None, core_path: Path | None = None) -> bool
         needs_git = True
     else:
         core_root = core_path.expanduser().resolve()
-        has_root_cmake = (core_root / "CMakeLists.txt").is_file()
-        has_nested_cmake = (core_root / "SkellCore" / "CMakeLists.txt").is_file()
-        if has_root_cmake or has_nested_cmake:
-            print(f"  SkellCore: local source ({core_root})")
+        valid_core_root = next(
+            (candidate for candidate in (core_root, core_root / "SkellCore")
+             if _is_skellcore_source_root(candidate)),
+            None,
+        )
+        if valid_core_root is not None:
+            print(f"  SkellCore: local source ({valid_core_root})")
         else:
             print(
-                f"  SkellCore: INVALID local path ({core_root}; expected "
-                "CMakeLists.txt or SkellCore/CMakeLists.txt)"
+                f"  SkellCore: INVALID local path ({core_root}; expected CMakeLists.txt, "
+                "include/SkellCore/Core.h, and SkellCore::DSP/SkellCore::UI alias targets)"
             )
             ready = False
             needs_git = True
