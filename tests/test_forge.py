@@ -163,6 +163,25 @@ class ForgeTests(unittest.TestCase):
         report = audit_project(self.project)
         self.assertNotIn("outside_root_secret_id", report["parameter_ids_detected"])
 
+    def test_audit_skips_symlinked_root_cmake(self):
+        self.make()
+        outside = self.root / "outside-CMakeLists.txt"
+        outside.write_text(
+            'juce_add_plugin(Outside)\nset(PLUGIN_CODE "Out1")\nset(BUNDLE_ID "audio.external")\n',
+            encoding="utf-8",
+        )
+        cmake = self.project / "CMakeLists.txt"
+        cmake.unlink()
+        try:
+            cmake.symlink_to(outside)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlink creation unavailable: {exc}")
+        report = audit_project(self.project)
+        self.assertFalse(report["root_cmake_found"])
+        self.assertFalse(report["juce_target_detected"])
+        self.assertIsNone(report["plugin_code"])
+        self.assertTrue(any("regular in-project" in warning for warning in report["warnings"]))
+
     def test_audit_missing_cmake_reports_warning(self):
         path = self.root / "old-plugin"
         path.mkdir()
