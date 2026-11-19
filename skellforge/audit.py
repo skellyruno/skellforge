@@ -10,8 +10,8 @@ from pathlib import Path
 
 
 def _literal(text: str, key: str) -> str | None:
-    match = re.search(r'(?m)^\\s*' + re.escape(key) +
-                      r'\\s+(?:"([^"]+)"|([A-Za-z0-9_.$/{}/+-]+))', text)
+    match = re.search(r'(?m)^\s*' + re.escape(key) +
+                      r'\s+(?:"([^"]+)"|([A-Za-z0-9_.$/{}/+-]+))', text)
     return (match.group(1) or match.group(2)) if match else None
 
 
@@ -50,10 +50,10 @@ def audit_project(path: Path) -> dict:
     cmake_file = path / "CMakeLists.txt"
     cmake_found, text = _read_project_cmake(path, cmake_file)
     formats = []
-    match = re.search(r"(?m)^\\s*FORMATS\\s+([^\\r\\n#]+)", text)
+    match = re.search(r"(?m)^\s*FORMATS\s+([^\r\n#]+)", text)
     if match:
         formats = re.findall(r"[A-Za-z0-9_]+", match.group(1))
-    has_juce = bool(re.search(r"\\bjuce_add_plugin\\s*\\(", text))
+    has_juce = bool(re.search(r"\bjuce_add_plugin\s*\(", text))
     has_core = "SkellCore::DSP" in text
     sources: list[Path] = []
     for folder in (path / "Source", path / "source", path / "src"):
@@ -76,7 +76,7 @@ def audit_project(path: Path) -> dict:
             content = file.read_text(encoding="utf-8", errors="replace")
         except OSError:
             continue
-        parameter_ids.update(re.findall(r'juce::ParameterID\\s*\\{\\s*"([A-Za-z0-9_.-]+)"', content))
+        parameter_ids.update(re.findall(r'juce::ParameterID\s*\{\s*"([A-Za-z0-9_.-]+)"', content))
     warnings: list[str] = []
     if not cmake_found:
         warnings.append("No regular in-project root CMakeLists.txt; inspect its actual build entrypoint")
@@ -93,7 +93,7 @@ def audit_project(path: Path) -> dict:
     if has_juce and not has_core:
         warnings.append("SkellCore::DSP link not detected; integration is optional and needs review")
     # Check only SkellCore's block, not JUCE's separately versioned dependency.
-    block = re.search(r"FetchContent_Declare\\s*\\(\\s*SkellCore\\b(.*?)\\)", text, flags=re.S | re.I)
+    block = re.search(r"FetchContent_Declare\s*\(\s*SkellCore\b(.*?)\)", text, flags=re.S | re.I)
     if block:
         pin = _literal(block.group(1), "GIT_TAG")
         if pin is None or not re.fullmatch(r"[a-fA-F0-9]{40}", pin):
