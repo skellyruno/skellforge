@@ -14,25 +14,25 @@ class DoctorTests(unittest.TestCase):
 
     def make_juce(self, root):
         root.mkdir(parents=True, exist_ok=True)
-        (root / "CMakeLists.txt").write_text("project(JUCE)\\n", encoding="utf-8")
+        (root / "CMakeLists.txt").write_text("project(JUCE)\n", encoding="utf-8")
         for module, header in (
             ("juce_core", "juce_core.h"),
             ("juce_audio_processors", "juce_audio_processors.h"),
         ):
             module_root = root / "modules" / module
             module_root.mkdir(parents=True)
-            (module_root / header).write_text("#pragma once\\n", encoding="utf-8")
+            (module_root / header).write_text("#pragma once\n", encoding="utf-8")
 
     def make_core(self, root, *, nested=False):
         source_root = root / "SkellCore" if nested else root
         include_root = source_root / "include" / "SkellCore"
         include_root.mkdir(parents=True)
         (source_root / "CMakeLists.txt").write_text(
-            "add_library(SkellCore::DSP ALIAS SkellCoreDSP)\\n"
-            "add_library(SkellCore::UI ALIAS SkellCoreUI)\\n",
+            "add_library(SkellCore::DSP ALIAS SkellCoreDSP)\n"
+            "add_library(SkellCore::UI ALIAS SkellCoreUI)\n",
             encoding="utf-8",
         )
-        (include_root / "Core.h").write_text("#pragma once\\n", encoding="utf-8")
+        (include_root / "Core.h").write_text("#pragma once\n", encoding="utf-8")
         return source_root
 
     def run_doctor(self, juce_path=None, core_path=None, *, cmake="/usr/bin/cmake", git="/usr/bin/git"):
