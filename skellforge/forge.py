@@ -245,13 +245,13 @@ def _pinned_juce_revision() -> str | None:
         return None
     source = template.read_text(encoding="utf-8")
     block = re.search(
-        r"FetchContent_Declare\\s*\\(\\s*JUCE\\b(.*?)\\)",
+        r"FetchContent_Declare\s*\(\s*JUCE\b(.*?)\)",
         source,
         flags=re.S | re.I,
     )
     if not block:
         return None
-    match = re.search(r"\\bGIT_TAG\\s+([^\\s)]+)", block.group(1))
+    match = re.search(r"\bGIT_TAG\s+([^\s)]+)", block.group(1))
     return match.group(1) if match else None
 
 
