@@ -14,8 +14,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: skellforge-smoke-${{ github.ref }}
-  cancel-in-progress: true
+  group: skellforge-smoke-${{ (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') || startsWith(github.ref, 'refs/heads/production/')) && github.run_id || github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' && github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/heads/release/') && !startsWith(github.ref, 'refs/heads/production/') && !startsWith(github.head_ref, 'release/') && !startsWith(github.head_ref, 'production/') }}
 jobs:
   build:
     runs-on: windows-latest
@@ -29,10 +29,27 @@ jobs:
         run: |
           python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
           python -m skellforge validate generated-smoke
-      - name: Build JUCE and pinned SkellCore VST3
-        run: cmake -S generated-smoke -B generated-smoke/build -A x64
+      - name: Build JUCE and pinned SkellCore VST3 plus opt-in real-editor capture
+        run: cmake -S generated-smoke -B generated-smoke/build -A x64 -DSKELLFORGE_BUILD_SMOKE_UI=ON
       - name: Compile Release plugin
         run: cmake --build generated-smoke/build --config Release --parallel 2
+      - name: Capture actual JUCE editor and check skull-only/theme/layout
+        shell: pwsh
+        run: |
+          $capture = Get-ChildItem generated-smoke/build -Recurse -File -Filter SkellForgeSmokeUiCapture.exe | Select-Object -First 1
+          if (-not $capture) { throw "SkellForgeSmokeUiCapture.exe missing from Release build" }
+          & $capture.FullName "$PWD/generated-smoke/ui-captures"
+          if ($LASTEXITCODE -ne 0) { throw "Real editor render/interaction QA failed ($LASTEXITCODE)" }
+          $images = @(Get-ChildItem generated-smoke/ui-captures -File -Filter *.png)
+          if ($images.Count -ne 4) { throw "Expected four real editor screenshots, got $($images.Count)" }
+      - name: Upload real JUCE Smoke UI screenshots
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: SkellForge-Smoke-Real-UI-Screenshots
+          path: generated-smoke/ui-captures/*.png
+          if-no-files-found: warn
+          retention-days: 7
       - name: Verify exact output and bundle it
         run: python -m skellforge package generated-smoke
       - uses: actions/upload-artifact@v4

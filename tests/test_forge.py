@@ -34,12 +34,71 @@ class ForgeTests(unittest.TestCase):
         cmake = (self.project / "CMakeLists.txt").read_text()
         self.assertIn("FORMATS VST3", cmake)
         self.assertNotIn("Standalone", cmake)
+        # Optional capture compiles the real JUCE editor only when requested.
+        self.assertIn("option(SKELLFORGE_BUILD_SMOKE_UI", cmake)
+        self.assertIn("if(SKELLFORGE_BUILD_SMOKE_UI)", cmake)
+        self.assertIn("tools/SmokeUiCapture.cpp", cmake)
+        self.assertIn("SkellForgeSmokeUiCapture", cmake)
+        capture = (self.project / "tools" / "SmokeUiCapture.cpp").read_text()
+        self.assertIn("createComponentSnapshot", capture)
+        self.assertIn("themeButton->onClick()", capture)
+        self.assertIn("key-shaft ghost", capture)
+
         self.assertIn(CORE_REV, cmake)
         self.assertNotIn("@@", cmake)
         proc = (self.project / "Source" / "PluginProcessor.cpp").read_text()
+        editor = (self.project / "Source" / "PluginEditor.cpp").read_text()
+        # The generic Forge Smoke starter shows ONLY the temporary skull
+        # head; Skell Key's key blade must never leak into this template.
+        self.assertIn("drawProvisionalSkullOnly(g, 50.0f, 21.0f,", editor)
+        self.assertIn("g.fillRoundedRectangle(x + 6.5f, y + 17.0f", editor)
+        self.assertIn("g.fillEllipse(x + 6.2f, y + 8.4f", editor)
+        self.assertIn("g.fillEllipse(x + 14.6f, y + 8.4f", editor)
+        self.assertIn("nose.addTriangle(", editor)
+        self.assertNotIn("drawSkullKeyMark", editor)
+        self.assertNotIn('g.drawFittedText("THEME"', editor)
+        self.assertNotIn("x + 56.0f", editor)
+        self.assertNotIn("x + 63.0f", editor)
+        self.assertNotIn("x + 69.5f", editor)
+        self.assertIn("themeButton_.onClick", editor)
+        self.assertIn("addAndMakeVisible(themeButton_)", editor)
+        self.assertIn("themeButton_.setBounds(", editor)
+        self.assertIn("changeSkin();", editor)
+        self.assertIn("themeButton_.setIvoryTheme(next == skellcore::ui::StudioSkin::Ivory)", editor)
+        self.assertNotIn("skull_", editor)
+        header = (self.project / "Source" / "PluginEditor.h").read_text()
+        self.assertIn("ThemeButton themeButton_", header)
+        self.assertIn("hasKeyboardFocus(true)", header)
+        self.assertIn("indicator.withAlpha(0.9f)", header)
+        self.assertIn("ivoryTheme_ ? juce::Colours::black : juce::Colours::white", header)
+        self.assertIn("setWantsKeyboardFocus(true)", header)
+        self.assertIn("isMouseOver || isButtonDown", header)
+        self.assertIn("setResizeLimits(390, 260, 900, 600)", editor)
         self.assertIn("gain_db", proc)
         self.assertIn("0.0f", proc)
         self.assertIn("gain_.skip(frames)", proc)
+
+    def test_starter_theme_hit_area_and_compact_geometry(self):
+        """Guard the skull hit target and minimum editor layout against clipping."""
+        self.make()
+        editor = (self.project / "Source" / "PluginEditor.cpp").read_text()
+        header = (self.project / "Source" / "PluginEditor.h").read_text()
+        self.assertIn("themeButton_.setBounds(22, 17, 82, 38)", editor)
+        self.assertIn("setResizeLimits(390, 260, 900, 600)", editor)
+        self.assertIn("setWantsKeyboardFocus(true)", header)
+        self.assertIn("hasKeyboardFocus(true)", header)
+        # Provisional skull is painted in parent coordinates inside the
+        # clickable button (x=22..104, y=17..55), including its teeth.
+        skull_left, skull_top = 50.0 + 1.0, 21.0
+        skull_right, skull_bottom = 50.0 + 26.0, 21.0 + 28.0
+        self.assertGreaterEqual(skull_left, 22)
+        self.assertGreaterEqual(skull_top, 17)
+        self.assertLessEqual(skull_right, 104)
+        self.assertLessEqual(skull_bottom, 55)
+        # At the minimum editor height, the gain knob must clear the footer.
+        min_height = 260
+        knob_size = max(116, min(176, min_height - 145))
+        self.assertLessEqual(106 + knob_size, min_height - 36)
 
     def test_output_is_not_overwritten(self):
         self.make()

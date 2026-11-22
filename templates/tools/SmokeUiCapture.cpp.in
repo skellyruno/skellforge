@@ -1,0 +1,92 @@
+// Actual generated SkellForge Smoke JUCE AudioProcessorEditor QA renderer.
+// Opt-in, hostless visual acceptance tool. Never linked into a VST3 bundle.
+#include "../Source/PluginEditor.h"
+#include <JuceHeader.h>
+#include <SkellCore/StudioUI.h>
+#include <cstdio>
+#include <cmath>
+#include <memory>
+
+namespace {
+bool fail(const char* message) {
+    std::fprintf(stderr, "FAIL Smoke JUCE UI: %s\n", message);
+    return false;
+}
+bool nearColour(const juce::Colour a, const juce::Colour b) {
+    return std::abs(a.getRed() - b.getRed()) < 5
+        && std::abs(a.getGreen() - b.getGreen()) < 5
+        && std::abs(a.getBlue() - b.getBlue()) < 5;
+}
+bool capture(juce::AudioProcessorEditor& editor, juce::File directory,
+             const juce::String& label, int width, int height,
+             const skellcore::ui::StudioPalette& palette) {
+    editor.setSize(width, height);
+    for (int i = 0; i < editor.getNumChildComponents(); ++i) {
+        const auto* component = editor.getChildComponent(i);
+        if (component->isVisible()
+            && !editor.getLocalBounds().contains(component->getBounds()))
+            return fail("visible control clipped outside window");
+    }
+    const auto snapshot = editor.createComponentSnapshot(editor.getLocalBounds(), false, 1.0f);
+    if (!snapshot.isValid() || snapshot.getWidth() != width || snapshot.getHeight() != height)
+        return fail("editor snapshot is empty or incorrectly sized");
+    if (!nearColour(snapshot.getPixelAt(64, 27), palette.accent))
+        return fail("skull head pigment missing near its center");
+    if (!nearColour(snapshot.getPixelAt(85, 32), palette.surface))
+        return fail("key-shaft ghost visible where the removed key used to extend");
+    const auto output = directory.getChildFile(label + ".png");
+    auto stream = output.createOutputStream();
+    if (!stream || !stream->openedOk())
+        return fail("cannot create UI screenshot file");
+    juce::PNGImageFormat png;
+    if (!png.writeImageToStream(snapshot, *stream))
+        return fail("PNG image encoding failed");
+    std::printf("CAPTURED %s %dx%d\n", output.getFullPathName().toRawUTF8(), width, height);
+    return true;
+}
+} // namespace
+
+int main(int argc, char** argv) {
+    juce::ScopedJuceInitialiser_GUI init;
+    const auto folder = argc > 1
+        ? juce::File(juce::String::fromUTF8(argv[1]))
+        : juce::File::getCurrentWorkingDirectory().getChildFile("ui-captures");
+    if (!folder.createDirectory().wasOk())
+        return fail("cannot create screenshots output directory") ? 0 : 1;
+
+    @@TARGET@@AudioProcessor processor;
+    processor.prepareToPlay(48000.0, 128);
+    {
+        @@TARGET@@AudioProcessorEditor editor(processor);
+        juce::Button* themeButton = nullptr;
+        for (int i=0; i<editor.getNumChildComponents(); ++i) {
+            auto* child = editor.getChildComponent(i);
+            if (child->getName() == "Theme")
+                themeButton = static_cast<juce::Button*>(child);
+        }
+        if (!themeButton || !themeButton->getWantsKeyboardFocus() || !themeButton->onClick)
+            return fail("theme button interaction or keyboard focus unavailable") ? 0 : 1;
+
+        const auto obsidian = skellcore::ui::studioPalette(skellcore::ui::StudioSkin::Obsidian);
+        const auto ivory = skellcore::ui::studioPalette(skellcore::ui::StudioSkin::Ivory);
+        if (!capture(editor, folder, "obsidian_small", 390, 260, obsidian)
+            || !capture(editor, folder, "obsidian_default", 440, 310, obsidian)
+            || !capture(editor, folder, "obsidian_large", 900, 600, obsidian))
+            return 1;
+
+        // Invoke the button's *real installed callback*, not a synthetic skin override.
+        themeButton->onClick();
+        if (!nearColour(editor.getLookAndFeel().findColour(juce::Label::textColourId),
+                        ivory.foreground))
+            return fail("theme click did not switch to Ivory colours") ? 0 : 1;
+        if (!capture(editor, folder, "ivory_default", 440, 310, ivory))
+            return 1;
+        themeButton->onClick();
+        if (!nearColour(editor.getLookAndFeel().findColour(juce::Label::textColourId),
+                        obsidian.foreground))
+            return fail("second theme click did not restore Obsidian") ? 0 : 1;
+    }
+    processor.releaseResources();
+    std::puts("PASS: four real JUCE editor renders, skull-only pixels, sizes, theme-click roundtrip");
+    return 0;
+}
