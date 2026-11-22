@@ -134,6 +134,54 @@ class ForgeTests(unittest.TestCase):
         self.assertFalse(report["safe_to_automatically_migrate"])
         self.assertEqual(before, (self.project / "CMakeLists.txt").read_bytes())
 
+    def test_audit_skips_symlinked_source_file(self):
+        self.make()
+        outside = self.root / "outside.cpp"
+        outside.write_text('juce::ParameterID{"outside_secret_id", 1}', encoding="utf-8")
+        link = self.project / "Source" / "External.cpp"
+        try:
+            link.symlink_to(outside)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlink creation unavailable: {exc}")
+        report = audit_project(self.project)
+        self.assertNotIn("outside_secret_id", report["parameter_ids_detected"])
+
+    def test_audit_skips_symlinked_source_root(self):
+        self.make()
+        outside = self.root / "outside-source"
+        outside.mkdir()
+        (outside / "External.cpp").write_text(
+            'juce::ParameterID{"outside_root_secret_id", 2}', encoding="utf-8")
+        source = self.project / "Source"
+        moved = self.project / "Source-real"
+        source.rename(moved)
+        try:
+            source.symlink_to(outside, target_is_directory=True)
+        except (OSError, NotImplementedError) as exc:
+            moved.rename(source)
+            self.skipTest(f"Directory symlink creation unavailable: {exc}")
+        report = audit_project(self.project)
+        self.assertNotIn("outside_root_secret_id", report["parameter_ids_detected"])
+
+    def test_audit_skips_symlinked_root_cmake(self):
+        self.make()
+        outside = self.root / "outside-CMakeLists.txt"
+        outside.write_text(
+            'juce_add_plugin(Outside)\nset(PLUGIN_CODE "Out1")\nset(BUNDLE_ID "audio.external")\n',
+            encoding="utf-8",
+        )
+        cmake = self.project / "CMakeLists.txt"
+        cmake.unlink()
+        try:
+            cmake.symlink_to(outside)
+        except (OSError, NotImplementedError) as exc:
+            self.skipTest(f"Symlink creation unavailable: {exc}")
+        report = audit_project(self.project)
+        self.assertFalse(report["root_cmake_found"])
+        self.assertFalse(report["juce_target_detected"])
+        self.assertIsNone(report["plugin_code"])
+        self.assertTrue(any("regular in-project" in warning for warning in report["warnings"]))
+
     def test_audit_missing_cmake_reports_warning(self):
         path = self.root / "old-plugin"
         path.mkdir()
