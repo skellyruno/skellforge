@@ -16,7 +16,7 @@ def pe64_fixture(machine=0x8664, magic=0x20b):
     image = bytearray(512)
     image[:2] = b"MZ"
     image[0x3c:0x40] = (0x80).to_bytes(4, "little")
-    image[0x80:0x84] = b"PE\\x00\\x00"
+    image[0x80:0x84] = b"PE\x00\x00"
     image[0x84:0x86] = machine.to_bytes(2, "little")
     image[0x94:0x96] = (0xf0).to_bytes(2, "little")
     image[0x98:0x9a] = magic.to_bytes(2, "little")
