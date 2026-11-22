@@ -1,5 +1,6 @@
 #pragma once
 #include <JuceHeader.h>
+#include "ForgeGraph.h"
 
 class @@TARGET@@AudioProcessor final : public juce::AudioProcessor {
 public:
@@ -26,5 +27,6 @@ public:
     juce::AudioProcessorValueTreeState parameters;
 private:
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> gain_{1.0f};
+    forgedsp::Graph graph_;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(@@TARGET@@AudioProcessor)
 };

@@ -1,5 +1,6 @@
 #include "PluginEditor.h"
 #include <SkellCore/SkullTheme.h>
+#include "ForgeUI.h"
 
 @@TARGET@@AudioProcessorEditor::@@TARGET@@AudioProcessorEditor(
     @@TARGET@@AudioProcessor& processor)
@@ -51,13 +52,9 @@ void @@TARGET@@AudioProcessorEditor::paint(juce::Graphics& g) {
     g.setFont(juce::Font(juce::FontOptions(11.0f)));
     g.drawFittedText("SKELLFORGE / VST3", 20, getHeight()-36,
                      getWidth()-40, 18, juce::Justification::centred, 1);
+    forgeui::drawLabels(g, getWidth(), getHeight(), palette.foreground);
 }
 
 void @@TARGET@@AudioProcessorEditor::resized() {
-    const int w = getWidth(), h = getHeight();
-    skull_.setBounds(22, 17, 82, 38);
-    title_.setBounds(110, 20, w-140, 35);
-    gainLabel_.setBounds(w/2-58, 77, 116, 24);
-    const int knobSize = juce::jlimit(116, 176, h-145);
-    gainKnob_.setBounds((w-knobSize)/2, 106, knobSize, knobSize);
+    forgeui::layout(skull_, title_, gainLabel_, gainKnob_, getWidth(), getHeight());
 }

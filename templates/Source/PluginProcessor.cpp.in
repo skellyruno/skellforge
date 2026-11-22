@@ -29,6 +29,7 @@ void @@TARGET@@AudioProcessor::prepareToPlay(double sampleRate, int) {
     const double rate = std::isfinite(sampleRate)
         ? juce::jlimit(1000.0, 192000.0, sampleRate) : 48000.0;
     gain_.reset(rate, 0.015);
+    graph_.prepare(rate);
     const auto* raw = parameters.getRawParameterValue("gain_db");
     const float value = raw ? raw->load() : 0.0f;
     const float db = std::isfinite(value) ? juce::jlimit(-24.0f, 24.0f, value) : 0.0f;
@@ -49,6 +50,7 @@ void @@TARGET@@AudioProcessor::processBlock(
     const float from = gain_.getCurrentValue();
     const float to = gain_.skip(frames);
     audio.applyGainRamp(0, frames, from, to);
+    graph_.process(audio);
 }
 
 juce::AudioProcessorEditor* @@TARGET@@AudioProcessor::createEditor() {

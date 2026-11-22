@@ -20,6 +20,11 @@ jobs:
           python-version: '3.12'
       - name: Test generator, IDs and VST3 packaging
         run: python -m unittest discover -s tests -v
+      - name: Check Python package compilation
+        run: python -m compileall -q skellforge tests tools
+      - name: Import desktop Studio module on Windows
+        if: runner.os == 'Windows'
+        run: python -c "import skellforge.studio_app; print('Desktop module imports')"
       - name: Check CLI environment report
         run: python -m skellforge doctor
       - name: Generate and validate sample plugin

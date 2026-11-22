@@ -18,6 +18,7 @@ from pathlib import Path
 
 from . import __version__
 from .audit import audit_project
+from .studio import init_studio, regenerate, load_studio, StudioError
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = ROOT / "templates"
@@ -146,6 +147,7 @@ def create_project(name: str, destination: Path, code: str,
         }
         for filename, content in (("skellforge.json", manifest), ("skellworld.json", world)):
             (destination / filename).write_text(json.dumps(content, indent=2) + "\n", encoding="utf-8")
+        init_studio(destination)
         validate_project(destination)
     except BaseException:
         shutil.rmtree(destination)
@@ -186,12 +188,18 @@ def validate_project(project: Path) -> dict:
     if world.get("plugin_code") != info["code"] or world.get("bundle_id") != info["bundle"] \
             or world.get("product_id") != info["world_id"]:
         raise ForgeError("SkellWorld manifest identity disagrees with SkellForge")
+    if (project / "forge-studio.json").is_file():
+        load_studio(project)
+    elif '"ForgeGraph.h"' in (project / "Source" / "PluginProcessor.h").read_text(encoding="utf-8"):
+        raise ForgeError("Forge Studio document missing; generated project cannot compile safely")
     return data
 
 
 def build_project(project: Path, juce_path: Path | None = None,
                   core_path: Path | None = None, parallel: int = 2) -> None:
     validate_project(project)
+    if (project / "forge-studio.json").is_file():
+        regenerate(project)
     if sys.platform != "win32":
         raise ForgeError("Windows VST3 build requires Windows; generate/validate works cross-platform")
     if shutil.which("cmake") is None:
@@ -270,6 +278,14 @@ def parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit", help="Read-only audit of an existing JUCE plugin")
     audit.add_argument("project", type=Path)
     audit.add_argument("--json", action="store_true", help="Print machine-readable report")
+    local = sub.add_parser("build-local", help="Build, verify real x64 VST3, export ZIP locally and record history")
+    local.add_argument("project", type=Path)
+    local.add_argument("--juce-path", type=Path)
+    local.add_argument("--core-path", type=Path)
+    local.add_argument("--parallel", type=int, default=2)
+    edit = sub.add_parser("studio", help="Launch local desktop visual studio")
+    export = sub.add_parser("regenerate", help="Validate saved Studio UI/DSP and generate C++ headers")
+    export.add_argument("project", type=Path)
     sub.add_parser("doctor", help="Display environment and dependency status")
     return p
 
@@ -305,9 +321,20 @@ def main(argv: list[str] | None = None) -> int:
                 for warning in report["warnings"]:
                     print(f"  CAUTION: {warning}")
                 print("  Automatic migration: disabled (protect IDs and DSP)")
+        elif args.action == "build-local":
+            from .local import build_and_export
+            output = build_and_export(args.project, juce_path=args.juce_path,
+                                      core_path=args.core_path, parallel=args.parallel,
+                                      log=print)
+            print("Exported: " + output["archive"])
+        elif args.action == "regenerate":
+            print("Regenerated: " + (", ".join(regenerate(args.project)) or "already current"))
+        elif args.action == "studio":
+            from .studio_app import main as studio_main
+            studio_main()
         elif args.action == "doctor":
             doctor()
         return 0
-    except (ForgeError, OSError, ValueError, subprocess.CalledProcessError) as exc:
+    except (ForgeError, StudioError, OSError, ValueError, subprocess.CalledProcessError) as exc:
         print(f"SkellForge error: {exc}", file=sys.stderr)
         return 1
