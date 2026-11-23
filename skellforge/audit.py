@@ -7,7 +7,15 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from pathlib import Path
+
+
+def is_link(path: Path) -> bool:
+    """Detect symlinks and Windows reparse points on Python 3.10 and newer."""
+    info = path.lstat()
+    return stat.S_ISLNK(info.st_mode) or bool(
+        getattr(info, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
 
 SOURCE_FOLDERS = ("Source", "source", "src")
 SOURCE_SUFFIXES = (".h", ".hpp", ".cpp", ".cc", ".cxx")
@@ -200,7 +208,7 @@ def find_parameter_ranges(project: Path, ids, limit: int = 2000) -> dict:
     for folder, subfolders, filenames in os.walk(project):
         subfolders[:] = sorted(d for d in subfolders if d not in SKIPPED_FOLDERS
                                and d != "build" and not d.startswith("build-")
-                               and not (Path(folder) / d).is_symlink())
+                               and not is_link(Path(folder) / d))
         for name in sorted(filenames):
             if Path(name).suffix.lower() not in LITERAL_SUFFIXES:
                 continue
@@ -235,7 +243,7 @@ def find_string_literals(project: Path, literals, limit: int = 2000) -> dict:
     for folder, subfolders, filenames in os.walk(project):
         subfolders[:] = sorted(d for d in subfolders if d not in SKIPPED_FOLDERS
                                and d != "build" and not d.startswith("build-")
-                               and not (Path(folder) / d).is_symlink())
+                               and not is_link(Path(folder) / d))
         for name in sorted(filenames):
             if Path(name).suffix.lower() not in LITERAL_SUFFIXES:
                 continue
@@ -272,12 +280,17 @@ def scan_parameter_ids(path: Path, limit: int = MAX_SOURCE_FILES) -> dict:
     path = Path(path).expanduser().resolve()
     files: set[Path] = set()
     for folder in (path / name for name in SOURCE_FOLDERS):
-        if folder.is_symlink() or not folder.is_dir():
+        if not folder.is_dir() or is_link(folder):
             continue
-        files.update(p for p in folder.rglob("*")
-                     if p.suffix.lower() in SOURCE_SUFFIXES
-                     and len(p.relative_to(folder).parts) <= MAX_SOURCE_DEPTH
-                     and _is_project_source(path, p))
+        for directory, subfolders, filenames in os.walk(folder):
+            depth = len(Path(directory).relative_to(folder).parts)
+            subfolders[:] = sorted(
+                name for name in subfolders
+                if depth + 1 < MAX_SOURCE_DEPTH
+                and not is_link(Path(directory) / name))
+            files.update(p for name in filenames
+                         if (p := Path(directory) / name).suffix.lower() in SOURCE_SUFFIXES
+                         and _is_project_source(path, p))
     # Bound the read-only scan, so an accidental large source tree stays cheap.
     ordered = sorted(files)
     scanned = ordered[:limit]
@@ -316,7 +329,7 @@ def _is_project_source(root: Path, candidate: Path) -> bool:
     the selected project root before reading it.
     """
     try:
-        if candidate.is_symlink() or not candidate.is_file():
+        if is_link(candidate) or not candidate.is_file():
             return False
         candidate.resolve(strict=True).relative_to(root)
         return True
@@ -327,7 +340,7 @@ def _is_project_source(root: Path, candidate: Path) -> bool:
 def _read_project_cmake(root: Path, candidate: Path) -> tuple[bool, str]:
     """Read only a regular CMakeLists.txt contained in the selected project."""
     try:
-        if candidate.is_symlink() or not candidate.is_file():
+        if is_link(candidate) or not candidate.is_file():
             return False, ""
         candidate.resolve(strict=True).relative_to(root)
         return True, candidate.read_text(encoding="utf-8", errors="replace")

@@ -18,7 +18,7 @@ import zipfile
 from pathlib import Path
 
 from . import __version__
-from .audit import audit_project, find_parameter_ranges, find_string_literals, strip_cmake_comments
+from .audit import audit_project, find_parameter_ranges, find_string_literals, is_link, strip_cmake_comments
 
 MIN_PYTHON = (3, 10)  # Path.write_text(newline=...) needs 3.10
 PARAMETER_SCAN_LIMIT = 2000
@@ -440,7 +440,18 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     search_root = artefacts / "Release"
     if not search_root.is_dir():
         search_root = artefacts
-    bundles = sorted(p for p in search_root.rglob("*.vst3") if p.is_dir())
+    # Check each directory before traversing it. Windows junctions are followed
+    # by os.walk even with followlinks=False on supported Python versions.
+    for parent in (project / "build", artefacts, search_root):
+        if is_link(parent):
+            raise ForgeError("VST3 build contains a symbolic link or reparse point; refusing export")
+    bundles = []
+    for directory, subfolders, filenames in os.walk(search_root):
+        for name in subfolders + filenames:
+            if is_link(Path(directory) / name):
+                raise ForgeError("VST3 build contains a symbolic link or reparse point; refusing export")
+        bundles.extend(Path(directory) / name for name in subfolders if name.endswith(".vst3"))
+    bundles.sort()
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
