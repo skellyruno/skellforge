@@ -1,0 +1,91 @@
+name: SkellForge generated JUCE-free native gain
+
+on:
+  pull_request:
+    paths:
+      - "skellforge/native_scaffold.py"
+      - "skellforge/forge.py"
+      - "tests/test_native_scaffold.py"
+      - ".github/workflows/generated-native-gain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Validate project identity, controls and packaging generator
+        run: python -m unittest discover -s tests -p test_native_scaffold.py -v
+  native-vst3:
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Fetch exact verified SkellNative SDK prototype
+        uses: actions/checkout@v5
+        with:
+          repository: skellyruno/skellnative
+          ref: f14e3fb13727b3fc7b25a9d862495725a5a45145
+          path: deps/skellnative
+      - name: Run deterministic native generator tests
+        run: python -m unittest discover -s tests -p test_native_scaffold.py -v
+      - name: Check out the pinned official Steinberg SDK
+        uses: actions/checkout@v5
+        with:
+          repository: steinbergmedia/vst3sdk
+          ref: 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+          submodules: recursive
+          path: deps/vst3sdk
+      - name: Generate brand-new SkellLang-driven Gain VST3 project
+        run: python -m skellforge new-native "Skell Forge Test" native-generated --code QZ92 --sdk deps/skellnative
+      - name: Configure independent JUCE-free generated VST3
+        shell: pwsh
+        run: |
+          $sdk = (Resolve-Path deps/skellnative).Path
+          $steinberg = (Resolve-Path deps/vst3sdk).Path
+          cmake -S native-generated -B native-generated/build -A x64 "-DSKELLNATIVE_ROOT=$sdk" "-DSKELLNATIVE_STEINBERG_SDK=$steinberg"
+      - name: Build generated Steinberg VST3 and native Win32 editor
+        run: cmake --build native-generated/build --config Release --parallel 2
+      - name: Run official Steinberg VST3 validator
+        run: ctest --test-dir native-generated/build -C Release --output-on-failure --no-tests=error
+      - name: Verify generated output matches stable factory identities
+        shell: pwsh
+        run: |
+          $bundle = "native-generated/build/VST3/Release/Skell Forge Test.vst3"
+          if (!(Test-Path -LiteralPath $bundle -PathType Container)) { throw "Missing VST3 bundle" }
+          $manifest = Get-Content native-generated/skellnative.json -Raw | ConvertFrom-Json
+          $file = Join-Path $bundle "Contents/Resources/moduleinfo.json"
+          $meta = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
+          $cids = @($meta.Classes | ForEach-Object { $_.CID })
+          if ($meta.Name -ne $manifest.name -or $cids.Count -ne 2 -or
+              !$cids.Contains($manifest.processor_cid) -or !$cids.Contains($manifest.controller_cid)) {
+            throw "Generated factory metadata does not match locked manifest"
+          }
+          $binary = @(Get-ChildItem -LiteralPath $bundle -File -Recurse -Filter *.vst3)
+          if ($binary.Count -ne 1) { throw "Expected exactly one VST3 Windows DLL" }
+          $bytes = [IO.File]::ReadAllBytes($binary[0].FullName)
+          $offset = [BitConverter]::ToInt32($bytes, 0x3c)
+          if ([BitConverter]::ToUInt16($bytes, $offset + 4) -ne 0x8664 -or
+              [BitConverter]::ToUInt16($bytes, $offset + 24) -ne 0x20b) {
+            throw "Expected Windows PE32+ AMD64"
+          }
+      - name: Upload experimental generated VST3, not a release
+        uses: actions/upload-artifact@v7
+        with:
+          name: SkellForge-Experimental-Generated-Native-Gain
+          path: native-generated/build/VST3/Release/Skell Forge Test.vst3/**/*
+          if-no-files-found: error
+          retention-days: 7

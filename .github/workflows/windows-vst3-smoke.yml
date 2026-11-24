@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      - name: Generate and validate native starter
+      - name: Generate and validate JUCE starter
         run: |
           python -m skellforge new "Skell Forge Smoke" generated-smoke --code SF90
           python -m skellforge validate generated-smoke
@@ -42,9 +42,12 @@ jobs:
         run: cmake --build generated-smoke/build --config Release --parallel 2
       - name: Verify exact output and bundle it
         run: python -m skellforge package generated-smoke
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: SkellForge-Smoke-Windows-VST3
-          path: generated-smoke/SkellForge-SkellForgeSmoke-Windows-VST3.zip
+          path: |
+            generated-smoke/SkellForge-SkellForgeSmoke-Windows-VST3.zip
+            generated-smoke/SkellForge-SkellForgeSmoke-Windows-VST3.zip.sha256
+            generated-smoke/skellforge.json
           if-no-files-found: error
           retention-days: 7

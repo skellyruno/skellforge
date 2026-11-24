@@ -355,6 +355,28 @@ class BuildTests(ProjectCase):
 
 
 class PackageHardeningTests(ProjectCase):
+    def test_package_aborts_on_incomplete_directory_walk(self):
+        self.make()
+        self.fake_bundle("Release", "VST3")
+        # Windows runner temp paths can use 8.3 aliases; package_project
+        # resolves the project before walking it.
+        root = (self.project / "build" / "SkellPulse_artefacts" / "Release").resolve()
+        real_walk = forge.os.walk
+
+        def interrupted_walk(top, *args, **kwargs):
+            if Path(top).resolve() == root:
+                callback = kwargs.get("onerror")
+                if callback:
+                    callback(PermissionError("simulated inaccessible resource directory"))
+            yield from real_walk(top, *args, **kwargs)
+
+        output = self.root / "incomplete.zip"
+        with patch.object(forge.os, "walk", side_effect=interrupted_walk):
+            with self.assertRaisesRegex(ForgeError, "Cannot enumerate VST3 build completely"):
+                package_project(self.project, output)
+        self.assertFalse(output.exists())
+        self.assertFalse(output.with_name(output.name + ".sha256").exists())
+
     def test_rejects_non_strict_or_duplicate_moduleinfo_before_package(self):
         self.make()
         self.fake_bundle("Release", "VST3")
