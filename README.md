@@ -98,6 +98,19 @@ New projects record standard gain parameter range/default metadata, which valida
 - `tests/` - generator and package regression tests
 - `docs/ROADMAP.md` - phased work toward a visual drag-and-drop Forge
 
+## Experimental Native track
+
+The same CLI can generate a distinct JUCE-free Gain VST3 (not a migration of
+existing plugins) and build Mini/Spacer pilots from an explicit SkellNative
+checkout. The generated gain has independent IDs and SkellLang controls.
+
+    python -m skellforge new-native "Skell Native Test" ../native-test --code QZ92 --sdk ../skellnative
+    python -m skellforge build-native mini ../skellnative ../mini-build
+
+The JUCE and Native CI workflows build independent experimental projects from
+the same Forge revision. Native Gain uses the official Steinberg validator;
+FL Studio, real audio A/B and UI inspection remain separate gates.
+
 ## Limits
 
 This is a **development milestone**, not a validated shipping-grade DSP framework.
