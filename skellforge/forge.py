@@ -445,20 +445,28 @@ def package_project(project: Path, output: Path | None = None) -> Path:
     for parent in (project / "build", artefacts, search_root):
         if is_link(parent):
             raise ForgeError("VST3 build contains a symbolic link or reparse point; refusing export")
+    def fail_walk(error: OSError) -> None:
+        raise ForgeError(f"Cannot enumerate VST3 build completely: {error}") from error
+
     bundles = []
-    for directory, subfolders, filenames in os.walk(search_root):
+    scanned = []
+    for directory, subfolders, filenames in os.walk(search_root, onerror=fail_walk):
         for name in subfolders + filenames:
-            if is_link(Path(directory) / name):
+            entry = Path(directory) / name
+            if is_link(entry):
                 raise ForgeError("VST3 build contains a symbolic link or reparse point; refusing export")
+            scanned.append(entry)
         bundles.extend(Path(directory) / name for name in subfolders if name.endswith(".vst3"))
     bundles.sort()
     if len(bundles) != 1:
         raise ForgeError(f"Expected exactly one VST3 bundle, found {len(bundles)}")
     bundle = bundles[0]
     # Do not archive symlinks: they can include unrelated files outside the bundle.
-    entries = sorted(bundle.rglob("*"))
-    if bundle.is_symlink() or any(p.is_symlink() for p in entries):
-        raise ForgeError("VST3 bundle contains a symbolic link; refusing export")
+    # Reuse the complete enumeration instead of a second rglob that can
+    # silently skip unreadable directories.
+    entries = sorted(p for p in scanned if bundle in p.parents)
+    if is_link(bundle) or any(is_link(p) for p in entries):
+        raise ForgeError("VST3 bundle contains a symbolic link or reparse point; refusing export")
     binaries = [p for p in entries if p.is_file() and p.suffix.lower() == ".vst3"]
     if len(binaries) != 1:
         raise ForgeError(f"Expected exactly one VST3 binary, found {len(binaries)}")
