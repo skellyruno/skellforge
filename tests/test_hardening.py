@@ -358,11 +358,13 @@ class PackageHardeningTests(ProjectCase):
     def test_package_aborts_on_incomplete_directory_walk(self):
         self.make()
         self.fake_bundle("Release", "VST3")
-        root = self.project / "build" / "SkellPulse_artefacts" / "Release"
+        # Windows runner temp paths can use 8.3 aliases; package_project
+        # resolves the project before walking it.
+        root = (self.project / "build" / "SkellPulse_artefacts" / "Release").resolve()
         real_walk = forge.os.walk
 
         def interrupted_walk(top, *args, **kwargs):
-            if Path(top) == root:
+            if Path(top).resolve() == root:
                 callback = kwargs.get("onerror")
                 if callback:
                     callback(PermissionError("simulated inaccessible resource directory"))
